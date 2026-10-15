@@ -80,7 +80,9 @@ The affected packages were still updated.
 
 The remaining [node-forge advisory](https://github.com/advisories/GHSA-86w9-cpqp-85rv)
 is in the development MCPB toolchain. The email server does not import that
-packaging tool. This iteration uses source builds and creates no signed release;
+packaging tool. CI gates runtime advisories explicitly; the remaining development
+packaging findings remain a documented exception. CI installs with lifecycle
+scripts disabled, and packaging uses only the locally locked MCPB executable. This iteration uses source builds and creates no signed release;
 it does not certify the packaging tool or its certificate verification.
 
 ## Relevant CLI source checks
@@ -126,7 +128,7 @@ and the actual permissions granted.
 
 ## Final validation record
 
-- Full suite: **767 passed, 44 test files**, Vitest 4.1.11, 16.03 seconds.
+- Full suite: **767 passed, 44 test files**, Vitest 4.1.11, 14.55 seconds.
 - TypeScript lint/build and `git diff --check`: passed.
 - Rebuilt root and plugin bundles: real stdio smoke tests passed for both default
   (12 tools) and drafts (15 tools), including delivery refusal with a deliberately

@@ -24,10 +24,12 @@ jobs:
           node-version: 22
           cache: npm
 
-      - run: npm ci
+      - run: npm ci --ignore-scripts
 
-      - name: Audit dependencies
-        run: npm audit --audit-level=high
+      # The known development-only MCPB/node-forge advisory has no fix.
+      # Keep the runtime gate enforced; see SECURITY-REVIEW.md before packaging.
+      - name: Audit runtime dependencies
+        run: npm audit --omit=dev --audit-level=high
 
       - name: Lint
         run: npm run lint
@@ -51,7 +53,7 @@ jobs:
           node-version: 22
           cache: npm
 
-      - run: npm ci
+      - run: npm ci --ignore-scripts
 
       - name: Build esbuild bundle
         run: npm run build:bundle
@@ -69,10 +71,10 @@ jobs:
           node-version: 22
           cache: npm
 
-      - run: npm ci
+      - run: npm ci --ignore-scripts
 
       - name: Validate MCPB manifest
-        run: npx --yes @anthropic-ai/mcpb validate mcpb/
+        run: npx --no-install @anthropic-ai/mcpb validate mcpb/
 
       - name: Build MCPB bundle
         run: npm run build:mcpb
