@@ -384,6 +384,8 @@ describe("HimalayaClient", () => {
     it.each([
       "invalid JSON", "null", JSON.stringify({ body: "unexpected" }),
       JSON.stringify({ html_body: [9], parts: [] }),
+      JSON.stringify({ html_body: [-1], parts: [] }),
+      JSON.stringify({ html_body: [0], parts: [{ body: { Binary: [1, 2] } }] }),
       JSON.stringify({ html_body: [0], parts: [{ body: { Text: "plain" } }] }),
     ])("rejects malformed v2 HTML response with a structured error: %s", async (stdout) => {
       setupMock(stdout);
@@ -399,6 +401,24 @@ describe("HimalayaClient", () => {
       const call = mockExecFileAsync.mock.calls.find((c) => (c[1] as string[])[0] === "message");
       expect(call![1]).toEqual(["message", "read", "--raw", "2999", "--mailbox", "Sent Items", "--account", "work"]);
       expect(fs.mkdtempSync).not.toHaveBeenCalled();
+    });
+
+    it("readMessageRaw on v2 reads stdout verbatim with account and mailbox", async () => {
+      const raw = "MIME-Version: 1.0\r\nSubject: Raw\r\n\r\nBody\r\n";
+      configureMock({ version: "himalaya v2.2.1 +imap", stdout: raw });
+      const client = new HimalayaClient({ binary: "/custom/himalaya" });
+      expect(await client.readMessageRaw("2999", "Archive", "work")).toBe(raw);
+      expect(mockExecFileAsync).toHaveBeenCalledWith("/custom/himalaya",
+        ["message", "read", "--raw", "2999", "--mailbox", "Archive", "--account", "work"],
+        expect.objectContaining({ maxBuffer: 10 * 1024 * 1024 }));
+      expect(fs.mkdtempSync).not.toHaveBeenCalled();
+    });
+
+    it("readMessageRaw preserves structured CLI errors and account context", async () => {
+      setupErrorMock(Object.assign(new Error("failed"), { stderr: "totally weird error" }));
+      await expect(new HimalayaClient().readMessageRaw("2999", "Inbox", "work")).rejects.toMatchObject({
+        envelope: { code: "unknown", account: "work", attempts: 1 },
+      });
     });
 
     it("exports v1 raw MIME using the requested folder and account, then cleans up", async () => {

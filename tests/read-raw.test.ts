@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { registerReadRawTools } from "../src/tools/read-raw";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { HimalayaClient } from "../src/himalaya/client.js";
+import { HimalayaError } from "../src/himalaya/errors.js";
 
 describe("read_email_raw", () => {
   it("registers the tool", () => {
@@ -36,6 +37,17 @@ describe("read_email_raw", () => {
     const result = await server.registerTool.mock.calls[0][2]({ id: "2999" });
     expect(result.isError).toBe(true);
     expect(JSON.parse(result.content[0].text)).toHaveProperty("error");
+  });
+
+  it("returns the client's structured error envelope", async () => {
+    const server = { registerTool: vi.fn() };
+    const client = new HimalayaClient();
+    const envelope = { code: "unknown" as const, message: "Read failed", recoverable: false, account: "work", attempts: 1 };
+    vi.spyOn(client, "readMessageRaw").mockRejectedValue(new HimalayaError(envelope));
+    registerReadRawTools(server as unknown as McpServer, client);
+    const result = await server.registerTool.mock.calls[0][2]({ id: "2999", account: "work" });
+    expect(result.isError).toBe(true);
+    expect(JSON.parse(result.content[0].text)).toEqual({ error: envelope });
   });
 
   it("tool description mentions .eml export format", () => {
