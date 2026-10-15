@@ -362,7 +362,74 @@ describe("HimalayaClient", () => {
       }
     });
 
-    it("readMessageHtml uses message export instead of removed --html flag", async () => {
+    it("reads indexed HTML parts from v2 parsed messages, excluding attachments", async () => {
+      configureMock({ stdout: JSON.stringify({
+        html_body: [2, 1],
+        parts: [{ body: { Text: "plain" } }, { body: { Html: "<p>second</p>" } },
+          { body: { Html: "<p>first</p>" } }, { body: { Html: "attachment" } }],
+      }) });
+      const client = new HimalayaClient();
+      expect(await client.readMessageHtml("2999", "Archive", "work"))
+        .toBe("<p>first</p>\n<p>second</p>");
+      const call = mockExecFileAsync.mock.calls.find((c) => (c[1] as string[])[0] === "message");
+      expect(call![1]).toEqual(["message", "read", "2999", "--mailbox", "Archive", "--account", "work", "--json"]);
+      expect(fs.mkdtempSync).not.toHaveBeenCalled();
+    });
+
+    it("returns empty HTML for a plain-text-only v2 message", async () => {
+      setupMock(JSON.stringify({ html_body: [], parts: [{ body: { Text: "plain" } }] }));
+      expect(await new HimalayaClient().readMessageHtml("1")).toBe("");
+    });
+
+    it.each([
+      "invalid JSON", "null", JSON.stringify({ body: "unexpected" }),
+      JSON.stringify({ html_body: [9], parts: [] }),
+      JSON.stringify({ html_body: [0], parts: [{ body: { Text: "plain" } }] }),
+    ])("rejects malformed v2 HTML response with a structured error: %s", async (stdout) => {
+      setupMock(stdout);
+      await expect(new HimalayaClient().readMessageHtml("1", undefined, "work"))
+        .rejects.toMatchObject({ envelope: { code: "parse_error", account: "work" } });
+    });
+
+    it("reads v2 raw MIME without JSON flags and preserves whitespace", async () => {
+      const mime = "From: sender@example.com\r\n\r\n body \r\n";
+      setupMock(mime);
+      const client = new HimalayaClient({ account: "work", folder: "Sent Items" });
+      expect(await client.readMessageRaw("2999")).toBe(mime);
+      const call = mockExecFileAsync.mock.calls.find((c) => (c[1] as string[])[0] === "message");
+      expect(call![1]).toEqual(["message", "read", "--raw", "2999", "--mailbox", "Sent Items", "--account", "work"]);
+      expect(fs.mkdtempSync).not.toHaveBeenCalled();
+    });
+
+    it("exports v1 raw MIME using the requested folder and account, then cleans up", async () => {
+      configureMock({ version: V1_VERSION_STDOUT, stdout: "" });
+      vi.mocked(fs.mkdtempSync).mockReturnValue("/tmp/raw-test");
+      vi.mocked(fs.readFileSync).mockReturnValue("raw MIME");
+      expect(await new HimalayaClient().readMessageRaw("2999", "Archive", "work")).toBe("raw MIME");
+      const call = mockExecFileAsync.mock.calls.find((c) => (c[1] as string[])[0] === "message");
+      expect(call![1]).toEqual(["message", "export", "--full", "--destination", "/tmp/raw-test/message.eml", "2999", "--folder", "Archive", "--account", "work", "--output", "json"]);
+      expect(fs.rmSync).toHaveBeenCalledWith("/tmp/raw-test", { recursive: true, force: true });
+    });
+
+    it.each(["readMessageHtml", "readMessageRaw"] as const)("cleans up v1 exports when %s fails", async (method) => {
+      configureMock({ version: V1_VERSION_STDOUT, error: new Error("export failed") });
+      vi.mocked(fs.mkdtempSync).mockReturnValue("/tmp/export-failed");
+      await expect(new HimalayaClient()[method]("1")).rejects.toThrow("export failed");
+      expect(fs.rmSync).toHaveBeenCalledWith("/tmp/export-failed", method === "readMessageRaw" ? { recursive: true, force: true } : { recursive: true });
+    });
+
+    it.each(["readMessageHtml", "readMessageRaw"] as const)("requires the attachments capability in %s before probing", async (method) => {
+      vi.stubEnv("HIMALAYA_CAPABILITIES", "");
+      await expect(new HimalayaClient()[method]("1")).rejects.toThrow("Capability disabled: attachments");
+      expect(mockExecFileAsync).not.toHaveBeenCalled();
+    });
+
+    it.each(["readMessageHtml", "readMessageRaw"] as const)("rejects flag-smuggling ids in %s before spawning", async (method) => {
+      await expect(new HimalayaClient()[method]("--help")).rejects.toThrow("looks like a flag");
+      expect(mockExecFileAsync).not.toHaveBeenCalled();
+    });
+
+    it("readMessageHtml on v1 uses message export instead of removed --html flag", async () => {
       configureMock({ version: V1_VERSION_STDOUT, stdout: "" });
       vi.mocked(fs.mkdtempSync).mockReturnValue("/tmp/himalaya-mcp-html-test");
       vi.mocked(fs.readFileSync).mockReturnValue("<p>Test HTML content</p>");

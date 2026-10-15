@@ -9,8 +9,9 @@ import { rmSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
+import { z } from "zod/v4";
 import type { HimalayaClientOptions } from "./types.js";
-import { classifyStderr, HimalayaError, unsupportedBackendError } from "./errors.js";
+import { classifyStderr, HimalayaError, parseError, unsupportedBackendError } from "./errors.js";
 import { resolveFromAddress } from "./config-toml.js";
 import { detectHimalayaVersion, type HimalayaVersion } from "./cli-version.js";
 import { isImapAccount, listAccounts } from "./accounts.js";
@@ -120,7 +121,7 @@ export class HimalayaClient {
 
   /**
    * Execute a himalaya CLI command and return raw stdout.
-   * Always appends --output json.
+   * Requests JSON output unless rawOutput is set (for raw MIME reads).
    *
    * Retries once with backoff on transient failures (ECONNRESET, ETIMEDOUT, * BYE).
    * Auth/cert/not-found and timeout errors are NOT retried — user-action required.
@@ -289,13 +290,37 @@ export class HimalayaClient {
   /** Read a message body (HTML).
    *
    * himalaya v1.2.0 removed the --html flag from `message read`.
-   * Instead, use `message export` (without --full) which exports
-   * MIME parts as separate files: index.html for HTML, plain.txt for text.
+   * v1 exports MIME parts as files. v2 removed export and returns a parsed
+   * message whose html_body indexes identify the decoded HTML MIME parts.
    */
   async readMessageHtml(id: string, folder?: string, account?: string): Promise<string> {
     requireCapability("attachments");
     assertSafeArg(id, "id");
-    if ((await this.resolveVersion()).major >= 2) throw new Error("HTML export is unavailable for Himalaya v2 in this fork");
+    const version = await this.resolveVersion();
+    if (version.major >= 2) {
+      const raw = await this.readMessage(id, folder, account);
+      // Validate the wire shape before indexing; never return a message object
+      // as a text tool result or silently hide an incompatible CLI response.
+      const schema = z.object({
+        html_body: z.array(z.number().int().nonnegative()),
+        parts: z.array(z.object({ body: z.unknown() })),
+      });
+      let data: unknown;
+      try { data = JSON.parse(raw); } catch {
+        throw parseError("Expected a parsed message JSON object", account || this.opts.account);
+      }
+      const message = schema.safeParse(data);
+      if (!message.success) {
+        throw parseError("Expected html_body indexes and MIME parts", account || this.opts.account);
+      }
+      return message.data.html_body.map((index) => {
+        const html = z.object({ Html: z.string() }).safeParse(message.data.parts[index]?.body);
+        if (!html.success) {
+          throw parseError("Invalid HTML MIME part", account || this.opts.account);
+        }
+        return html.data.Html;
+      }).join("\n");
+    }
     const tmpDir = mkdtempSync(join(tmpdir(), "himalaya-mcp-html-"));
     try {
       const args = ["message", "export"];

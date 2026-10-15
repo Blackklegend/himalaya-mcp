@@ -34,6 +34,16 @@ describe("cli-argv-smoke (real subprocess, no mocking) -- v2 syntax", () => {
   beforeEach(() => { process.env.FAKE_HIMALAYA_VERSION = "2"; process.env.HIMALAYA_BINARY = FIXTURE_BINARY; });
   afterEach(() => { delete process.env.FAKE_HIMALAYA_VERSION; delete process.env.HIMALAYA_BINARY; });
 
+  it("reads v2 HTML through message read JSON without the removed export command", async () => {
+    expect(await clientFor("2").readMessageHtml("2999", "Archive", "work"))
+      .toBe("<p>fixture body</p>");
+  });
+
+  it("reads v2 raw MIME through message read --raw", async () => {
+    expect(await clientFor("2").readMessageRaw("2999", "Archive", "work"))
+      .toBe("From: fixture@example.com\r\n\r\nfixture body\r\n");
+  });
+
   it("listEnvelopes: real fixture accepts the argv and returns canned JSON", async () => {
     const client = clientFor("2");
     const result = await client.listEnvelopes();
