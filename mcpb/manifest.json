@@ -2,7 +2,7 @@
   "manifest_version": "0.3",
   "name": "himalaya-mcp",
   "display_name": "Himalaya Email",
-  "version": "2.1.2",
+  "version": "2.1.2-hardened.1",
   "description": "Privacy-first email for Claude via the himalaya CLI. List, search, read, triage, compose, and manage emails without sending credentials to the cloud.",
   "author": {
     "name": "Data-Wise",
@@ -11,7 +11,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/Data-Wise/himalaya-mcp"
+    "url": "https://github.com/Blackklegend/himalaya-mcp"
   },
   "homepage": "https://github.com/Data-Wise/himalaya-mcp",
   "keywords": [
@@ -111,7 +111,7 @@
     },
     {
       "name": "send_email",
-      "description": "Send an email template. SAFETY: requires confirm=true to actually send. Without confirm, returns a preview. Always show the user the preview and get their approval before sending with confirm=true."
+      "description": "Preview only; delivery disabled; confirm=true rejected"
     },
     {
       "name": "snooze_email",
@@ -119,7 +119,7 @@
     },
     {
       "name": "compose_email",
-      "description": "Compose and send a new email (not a reply). SAFETY: requires confirm=true to actually send. Without confirm, returns a preview for user review."
+      "description": "Preview only; delivery disabled; confirm=true rejected"
     },
     {
       "name": "list_folders",

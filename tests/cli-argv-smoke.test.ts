@@ -1,3 +1,6 @@
+import { beforeEach as capabilityBeforeEach, afterEach as capabilityAfterEach, vi as capabilityVi } from "vitest";
+capabilityBeforeEach(() => capabilityVi.stubEnv("HIMALAYA_CAPABILITIES", "mailbox-write,attachments,drafts"));
+capabilityAfterEach(() => capabilityVi.unstubAllEnvs());
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
@@ -78,6 +81,10 @@ describe("cli-argv-smoke (real subprocess, no mocking) -- v1.x syntax", () => {
     const client = clientFor("1");
     const result = await client.listEnvelopes();
     expect(JSON.parse(result)).toHaveProperty("envelopes");
+  });
+
+  it("readMessage uses the v1 preview mode through the actual process boundary", async () => {
+    expect(await clientFor("1").readMessage("1")).toContain("without Seen mutation");
   });
 
   it("listFolders: real fixture accepts folder list --output json", async () => {

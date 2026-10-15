@@ -35,16 +35,17 @@ vi.mock("node:fs/promises", async (importOriginal) => {
   return {
     ...actual,
     mkdir: vi.fn().mockResolvedValue(undefined),
+    mkdtemp: vi.fn().mockResolvedValue("/tmp/himalaya-mcp-test-private"),
     readFile: vi.fn(),
     readdir: vi.fn().mockResolvedValue(["report.pdf", "photo.jpg", "plain.txt", "index.html"]),
-    stat: vi.fn().mockImplementation((path: string) => {
-      if (path.includes("report.pdf")) return Promise.resolve({ isFile: () => true, size: 245760 });
-      if (path.includes("photo.jpg")) return Promise.resolve({ isFile: () => true, size: 1048576 });
-      if (path.includes("invite.ics")) return Promise.resolve({ isFile: () => true, size: 2048 });
-      if (path.includes("agenda.pdf")) return Promise.resolve({ isFile: () => true, size: 51200 });
-      if (path.includes("plain.txt")) return Promise.resolve({ isFile: () => true, size: 150 });
-      if (path.includes("index.html")) return Promise.resolve({ isFile: () => true, size: 300 });
-      return Promise.resolve({ isFile: () => false, size: 0 });
+    lstat: vi.fn().mockImplementation((path: string) => {
+      if (path.includes("report.pdf")) return Promise.resolve({ isFile: () => true, isSymbolicLink: () => false, nlink: 1, size: 245760 });
+      if (path.includes("photo.jpg")) return Promise.resolve({ isFile: () => true, isSymbolicLink: () => false, nlink: 1, size: 1048576 });
+      if (path.includes("invite.ics")) return Promise.resolve({ isFile: () => true, isSymbolicLink: () => false, nlink: 1, size: 2048 });
+      if (path.includes("agenda.pdf")) return Promise.resolve({ isFile: () => true, isSymbolicLink: () => false, nlink: 1, size: 51200 });
+      if (path.includes("plain.txt")) return Promise.resolve({ isFile: () => true, isSymbolicLink: () => false, nlink: 1, size: 150 });
+      if (path.includes("index.html")) return Promise.resolve({ isFile: () => true, isSymbolicLink: () => false, nlink: 1, size: 300 });
+      return Promise.resolve({ isFile: () => false, isSymbolicLink: () => false, nlink: 1, size: 0 });
     }),
   };
 });
@@ -540,7 +541,7 @@ describe("Dogfooding: send_email safety gate", () => {
   it("Scenario: preview before send — does NOT send", async () => {
     const tool = getToolHandler(server, "send_email");
     const result = await tool.handler({
-      template: "From: me@test.com\nSubject: Test\n\nHello",
+      template: "From: me@test.com\nTo: you@test.com\nSubject: Test\n\nHello",
       confirm: undefined, account: undefined,
     }, {} as any);
 
@@ -548,15 +549,16 @@ describe("Dogfooding: send_email safety gate", () => {
     expect(client.sendTemplate).not.toHaveBeenCalled();
   });
 
-  it("Scenario: user confirms — sends email", async () => {
+  it("Scenario: confirm=true — delivery stays disabled", async () => {
     const tool = getToolHandler(server, "send_email");
     const template = "From: me@test.com\nTo: you@test.com\nSubject: Hi\n\nHello!";
     const result = await tool.handler({
       template, confirm: true, account: undefined,
     }, {} as any);
 
-    expect(result.content[0].text).toContain("sent successfully");
-    expect(client.sendTemplate).toHaveBeenCalledWith(template, undefined);
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain("Delivery disabled");
+    expect(client.sendTemplate).not.toHaveBeenCalled();
   });
 });
 
@@ -775,7 +777,7 @@ describe("Dogfooding: compose_email safety gate", () => {
     expect(client.sendTemplate).not.toHaveBeenCalled();
   });
 
-  it("Scenario: user confirms compose — sends email", async () => {
+  it("Scenario: confirm=true compose — delivery stays disabled", async () => {
     const tool = getToolHandler(server, "compose_email");
     const result = await tool.handler({
       to: "alice@example.com", subject: "Meeting Request",
@@ -783,9 +785,9 @@ describe("Dogfooding: compose_email safety gate", () => {
       confirm: true, account: undefined,
     }, {} as any);
 
-    expect(result.content[0].text).toContain("sent successfully");
-    expect(result.content[0].text).toContain("alice@example.com");
-    expect(client.sendTemplate).toHaveBeenCalled();
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain("Delivery disabled");
+    expect(client.sendTemplate).not.toHaveBeenCalled();
   });
 
   it("Scenario: compose with CC and BCC — includes all recipients", async () => {
@@ -813,7 +815,7 @@ describe("Dogfooding: compose_email safety gate", () => {
 
     expect(result.isError).toBe(true);
     const envelope = JSON.parse(result.content[0].text as string).error;
-    expect(envelope.message).toContain("SMTP connection refused");
+    expect(envelope.message).toContain("Delivery disabled");
   });
 });
 
@@ -879,7 +881,7 @@ describe("Dogfooding: download_attachment", () => {
     const text = result.content[0].text;
     expect(text).toContain("Downloaded");
     expect(text).toContain("report.pdf");
-    expect(text).toContain("/tmp/himalaya-mcp-test-uuid-1234");
+    expect(text).toContain("/tmp/himalaya-mcp-test-private");
     expect(client.downloadAttachments).toHaveBeenCalled();
   });
 
@@ -1225,224 +1227,25 @@ describe("Packaging: plugin manifest structure", () => {
 
 describe("Packaging: pre-send hook", () => {
   const hookPath = join(PROJECT_ROOT, "himalaya-mcp-plugin", "hooks", "pre-send.sh");
-  let tempHome: string;
-
-  /** Run the hook with isolated HOME to prevent audit log pollution */
-  function runHook(input: object): { status: number | null; stdout: string; stderr: string } {
+  function runHook(input: string) {
     const { spawnSync } = require("node:child_process");
-    const proc = spawnSync("/bin/bash", [hookPath], {
-      input: JSON.stringify(input),
-      encoding: "utf-8",
-      env: { ...process.env, HOME: tempHome },
-    });
-    return { status: proc.status, stdout: proc.stdout, stderr: proc.stderr };
+    return spawnSync("/bin/bash", [hookPath], { input, encoding: "utf8" });
   }
-
-  beforeEach(() => {
-    const { mkdtempSync: mkd } = require("node:fs");
-    const { tmpdir } = require("node:os");
-    tempHome = mkd(join(tmpdir(), "hook-test-"));
+  it.each(["send_email", "compose_email", "mcp__plugin_himalaya_email__send_email"])("blocks confirm=true for %s without exposing content", name => {
+    const result = runHook(JSON.stringify({ tool_name: name, tool_input: { confirm: true, template: "SECRET CONTENT", bcc: "secret@example.com" } }));
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain("Delivery disabled");
+    expect(result.stderr).not.toContain("SECRET CONTENT");
+    expect(result.stdout).toBe("");
   });
-
-  afterEach(() => {
-    rmSync(tempHome, { recursive: true, force: true });
+  it("allows previews without treating them as approval", () => {
+    expect(runHook(JSON.stringify({ tool_name: "send_email", tool_input: { confirm: false } })).status).toBe(0);
   });
-
-  // ── Static analysis ──────────────────────────────────────────────
-
-  it("hook script exists and is executable", () => {
-    expect(existsSync(hookPath)).toBe(true);
-    const mode = statSync(hookPath).mode;
-    expect(mode & 0o111).toBeGreaterThan(0);
+  it("passes through read tools", () => {
+    expect(runHook(JSON.stringify({ tool_name: "read_email", tool_input: { id: "1" } })).status).toBe(0);
   });
-
-  it("plugin.json hooks use CLAUDE_PLUGIN_ROOT for path resolution", () => {
-    const pJson = JSON.parse(
-      readFileSync(join(PROJECT_ROOT, "himalaya-mcp-plugin", ".claude-plugin", "plugin.json"), "utf-8")
-    );
-    expect(pJson.hooks).toBeDefined();
-    expect(pJson.hooks.PreToolUse).toBeDefined();
-    expect(pJson.hooks.PreToolUse[0].matcher).toBe("mcp__plugin_himalaya_email__.*");
-    const cmd = pJson.hooks.PreToolUse[0].hooks[0].command;
-    expect(cmd).toContain("${CLAUDE_PLUGIN_ROOT}");
-    expect(cmd).not.toContain("./.");
-  });
-
-  // ── Passthrough: non-send tools ──────────────────────────────────
-
-  it("allows list_emails through (exit 0, no preview)", () => {
-    const r = runHook({ tool_name: "list_emails", tool_input: {} });
-    expect(r.status).toBe(0);
-    expect(r.stderr).not.toContain("Email Send Preview");
-  });
-
-  it("allows read_email through (exit 0, no preview)", () => {
-    const r = runHook({ tool_name: "read_email", tool_input: { id: "1" } });
-    expect(r.status).toBe(0);
-    expect(r.stderr).not.toContain("Email Send Preview");
-  });
-
-  it("allows flag_email through (exit 0, no preview)", () => {
-    const r = runHook({ tool_name: "flag_email", tool_input: { id: "1", flag: "Seen" } });
-    expect(r.status).toBe(0);
-    expect(r.stderr).not.toContain("Email Send Preview");
-  });
-
-  // ── Passthrough: send tools without confirm ──────────────────────
-
-  it("send_email with confirm=false → no preview, no audit log", () => {
-    const r = runHook({
-      tool_name: "send_email",
-      tool_input: { to: "a@b.com", subject: "Test", body: "Hi", confirm: false },
-    });
-    expect(r.status).toBe(0);
-    expect(r.stderr).not.toContain("Email Send Preview");
-    expect(existsSync(join(tempHome, ".himalaya-mcp", "sent.log"))).toBe(false);
-  });
-
-  it("compose_email with confirm='false' (string) → no preview", () => {
-    const r = runHook({
-      tool_name: "compose_email",
-      tool_input: { to: "a@b.com", subject: "Test", body: "Hi", confirm: "false" },
-    });
-    expect(r.status).toBe(0);
-    expect(r.stderr).not.toContain("Email Send Preview");
-  });
-
-  it("send_email with no confirm field → no preview", () => {
-    const r = runHook({
-      tool_name: "send_email",
-      tool_input: { to: "a@b.com", subject: "Test", body: "Hi" },
-    });
-    expect(r.status).toBe(0);
-    expect(r.stderr).not.toContain("Email Send Preview");
-  });
-
-  // ── Preview: confirm=true ────────────────────────────────────────
-
-  it("fully-qualified send_email with confirm='true' → shows preview", () => {
-    const r = runHook({
-      tool_name: "mcp__plugin_himalaya_email__send_email",
-      tool_input: { to: "alice@example.com", subject: "Meeting", body: "Hi Alice", confirm: "true" },
-    });
-    expect(r.status).toBe(0);
-    expect(r.stderr).toContain("Email Send Preview");
-    expect(r.stderr).toContain("alice@example.com");
-    expect(r.stderr).toContain("Meeting");
-    expect(r.stderr).toContain("Hi Alice");
-  });
-
-  it("fully-qualified compose_email with confirm='true' → shows preview", () => {
-    const r = runHook({
-      tool_name: "mcp__plugin_himalaya_email__compose_email",
-      tool_input: { to: "bob@example.com", subject: "Hello", body: "Line1\nLine2\nLine3", confirm: "true" },
-    });
-    expect(r.status).toBe(0);
-    expect(r.stderr).toContain("Email Send Preview");
-    expect(r.stderr).toContain("bob@example.com");
-    expect(r.stderr).toContain("Hello");
-  });
-
-  it("short name send_email with confirm='true' → also works (backward compat)", () => {
-    const r = runHook({
-      tool_name: "send_email",
-      tool_input: { to: "c@d.com", subject: "Compat", body: "Test", confirm: "true" },
-    });
-    expect(r.status).toBe(0);
-    expect(r.stderr).toContain("Email Send Preview");
-  });
-
-  // ── Preview content accuracy ─────────────────────────────────────
-
-  it("shows CC line when CC field present", () => {
-    const r = runHook({
-      tool_name: "mcp__plugin_himalaya_email__send_email",
-      tool_input: { to: "a@b.com", cc: "cc@b.com", subject: "S", body: "B", confirm: "true" },
-    });
-    expect(r.stderr).toContain("CC:");
-    expect(r.stderr).toContain("cc@b.com");
-  });
-
-  it("omits CC line when CC field absent", () => {
-    const r = runHook({
-      tool_name: "mcp__plugin_himalaya_email__send_email",
-      tool_input: { to: "a@b.com", subject: "S", body: "B", confirm: "true" },
-    });
-    expect(r.stderr).not.toContain("CC:");
-  });
-
-  it("body >3 lines → shows first 3 lines + truncation notice", () => {
-    const r = runHook({
-      tool_name: "mcp__plugin_himalaya_email__compose_email",
-      tool_input: {
-        to: "a@b.com", subject: "S", confirm: "true",
-        body: "Line1\nLine2\nLine3\nLine4\nLine5",
-      },
-    });
-    expect(r.stderr).toContain("Line1");
-    expect(r.stderr).toContain("Line3");
-    expect(r.stderr).toContain("5 lines total");
-    expect(r.stderr).not.toContain("Line4");
-  });
-
-  it("body <=3 lines → shows full body, no truncation notice", () => {
-    const r = runHook({
-      tool_name: "mcp__plugin_himalaya_email__send_email",
-      tool_input: { to: "a@b.com", subject: "S", body: "Only two\nlines", confirm: "true" },
-    });
-    expect(r.stderr).toContain("Only two");
-    expect(r.stderr).toContain("lines");
-    expect(r.stderr).not.toContain("lines total");
-  });
-
-  it("empty body → no body lines in preview", () => {
-    const r = runHook({
-      tool_name: "mcp__plugin_himalaya_email__send_email",
-      tool_input: { to: "a@b.com", subject: "S", body: "", confirm: "true" },
-    });
-    expect(r.stderr).toContain("Email Send Preview");
-    expect(r.stderr).not.toContain("lines total");
-  });
-
-  it("missing to/subject → shows '<not set>' placeholders", () => {
-    const r = runHook({
-      tool_name: "mcp__plugin_himalaya_email__send_email",
-      tool_input: { confirm: "true" },
-    });
-    expect(r.stderr).toContain("<not set>");
-    // Both to and subject missing → two placeholders
-    const matches = r.stderr.match(/<not set>/g);
-    expect(matches).not.toBeNull();
-    expect(matches!.length).toBeGreaterThanOrEqual(2);
-  });
-
-  // ── Audit log ────────────────────────────────────────────────────
-
-  it("confirm=true send → creates audit log with correct content", () => {
-    runHook({
-      tool_name: "mcp__plugin_himalaya_email__send_email",
-      tool_input: { to: "log@test.com", subject: "Audit Test", body: "Body", confirm: "true" },
-    });
-    const logPath = join(tempHome, ".himalaya-mcp", "sent.log");
-    expect(existsSync(logPath)).toBe(true);
-    const content = readFileSync(logPath, "utf-8");
-    expect(content).toContain("date:");
-    expect(content).toContain("to: log@test.com");
-    expect(content).toContain("subject: Audit Test");
-    expect(content).toContain("tool: mcp__plugin_himalaya_email__send_email");
-  });
-
-  it("confirm=false → no audit log created", () => {
-    runHook({
-      tool_name: "send_email",
-      tool_input: { to: "a@b.com", subject: "S", body: "B", confirm: false },
-    });
-    expect(existsSync(join(tempHome, ".himalaya-mcp", "sent.log"))).toBe(false);
-  });
-
-  it("non-send tool → no audit log created", () => {
-    runHook({ tool_name: "list_emails", tool_input: {} });
-    expect(existsSync(join(tempHome, ".himalaya-mcp", "sent.log"))).toBe(false);
+  it.each(["invalid JSON", "{}", '{"tool_name": null}', '{"tool_name":"send_email","tool_input":null}'])("fails closed on malformed input", input => {
+    expect(runHook(input).status).toBe(2);
   });
 });
 
@@ -1457,7 +1260,7 @@ describe("Packaging: marketplace.json", () => {
     const marketplace = JSON.parse(readFileSync(marketplacePath, "utf-8"));
     expect(marketplace.name).toBeTruthy();
     expect(marketplace.owner).toBeDefined();
-    expect(marketplace.owner.name).toBe("Data-Wise");
+    expect(marketplace.owner.name).toBe("Blackklegend");
     expect(marketplace.plugins).toBeDefined();
     expect(marketplace.plugins.length).toBe(1);
     expect(marketplace.plugins[0].name).toBe("himalaya");
@@ -1488,122 +1291,10 @@ describe("Packaging: .mcp.json", () => {
   });
 });
 
-describe("Packaging: homebrew-release workflow", () => {
-  const workflowPath = join(PROJECT_ROOT, ".github", "workflows", "homebrew-release.yml");
-  const workflowContent = readFileSync(workflowPath, "utf-8");
-
-  it("exists in .github/workflows/", () => {
-    expect(existsSync(workflowPath)).toBe(true);
-  });
-
-  it("triggers on release published and workflow_dispatch", () => {
-    expect(workflowContent).toContain("release:");
-    expect(workflowContent).toContain("types: [published]");
-    expect(workflowContent).toContain("workflow_dispatch:");
-  });
-
-  it("has all three required jobs", () => {
-    // validate → prepare → update-homebrew pipeline
-    expect(workflowContent).toContain("validate:");
-    expect(workflowContent).toContain("prepare:");
-    expect(workflowContent).toContain("update-homebrew:");
-  });
-
-  it("prepare depends on validate", () => {
-    expect(workflowContent).toContain("needs: validate");
-  });
-
-  it("update-homebrew depends on prepare", () => {
-    expect(workflowContent).toContain("needs: prepare");
-  });
-
-  it("references correct formula name", () => {
-    expect(workflowContent).toContain("formula_name: himalaya-mcp");
-  });
-
-  it("downloads tarball from correct repo", () => {
-    expect(workflowContent).toContain(
-      "https://github.com/Data-Wise/himalaya-mcp/archive/refs/tags/v"
-    );
-  });
-
-  it("calls reusable update-formula workflow", () => {
-    const refMatch = workflowContent.match(
-      /Data-Wise\/homebrew-tap\/\.github\/workflows\/update-formula\.yml@\w+/
-    );
-    expect(refMatch).toBeTruthy();
-    expect(refMatch![0]).not.toContain("@main");
-  });
-
-  it("references HOMEBREW_TAP_GITHUB_TOKEN secret", () => {
-    expect(workflowContent).toContain("HOMEBREW_TAP_GITHUB_TOKEN");
-  });
-
-  it("validate job runs build, test, and bundle", () => {
-    expect(workflowContent).toContain("npm run build");
-    expect(workflowContent).toContain("npm test");
-    expect(workflowContent).toContain("npm run build:bundle");
-  });
-
-  it("validate job checks version consistency", () => {
-    expect(workflowContent).toContain("package.json");
-    expect(workflowContent).toContain("Version mismatch");
-  });
-
-  it("prepare job has retry logic for tarball download", () => {
-    expect(workflowContent).toContain("for i in 1 2 3 4 5");
-    expect(workflowContent).toContain("sleep 10");
-  });
-
-  it("prepare job uses curl timeout to prevent stalled connections", () => {
-    expect(workflowContent).toContain("--max-time 30");
-  });
-
-  it("prepare job uses mktemp for safe temp file handling", () => {
-    expect(workflowContent).toContain("mktemp /tmp/tarball-XXXXXX");
-  });
-
-  it("prepare job uses sha256sum (native on Ubuntu runners)", () => {
-    expect(workflowContent).toContain("sha256sum");
-    expect(workflowContent).not.toContain("shasum");
-  });
-
-  it("prepare job guards against empty tarball SHA", () => {
-    // The SHA of an empty file — used to detect incomplete downloads
-    expect(workflowContent).toContain(
-      "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-    );
-  });
-
-  it("uses env variables for GitHub context (injection safe)", () => {
-    // Version extraction uses env vars, not direct ${{ }} in run blocks
-    expect(workflowContent).toContain("EVENT_NAME: ${{ github.event_name }}");
-    expect(workflowContent).toContain("INPUT_VERSION: ${{ github.event.inputs.version }}");
-    expect(workflowContent).toContain("GIT_REF: ${{ github.ref }}");
-  });
-
-  it("prepare job consumes version from validate (single source of truth)", () => {
-    expect(workflowContent).toContain("needs.validate.outputs.version");
-  });
-
-  it("validate job outputs version for downstream jobs", () => {
-    // validate outputs version so prepare doesn't re-derive it
-    expect(workflowContent).toContain("steps.version.outputs.version");
-  });
-
-  it("workflow_dispatch accepts version and auto_merge inputs", () => {
-    expect(workflowContent).toContain("version:");
-    expect(workflowContent).toContain("auto_merge:");
-    expect(workflowContent).toContain("type: string");
-    expect(workflowContent).toContain("type: boolean");
-  });
-
-  it("all workflow files are present", () => {
-    const workflowDir = join(PROJECT_ROOT, ".github", "workflows");
-    const files = readdirSync(workflowDir).sort();
-    expect(files).toContain("ci.yml");
-    expect(files).toContain("docs.yml");
-    expect(files).toContain("homebrew-release.yml");
+describe("Packaging: upstream publishing disabled", () => {
+  it.each(["homebrew-release", "docs", "aggregator-sync"])("does not run upstream %s automation in this fork", name => {
+    expect(existsSync(join(PROJECT_ROOT, ".github/workflows", `${name}.yml`))).toBe(false);
+    expect(existsSync(join(PROJECT_ROOT, ".github/workflows", `${name}.yml.disabled`))).toBe(true);
   });
 });
 
@@ -1784,7 +1475,7 @@ describe("Packaging: mcpb/manifest.json", () => {
   it("has license and repository metadata", () => {
     expect(manifest.license).toBe("MIT");
     expect(manifest.repository.type).toBe("git");
-    expect(manifest.repository.url).toContain("Data-Wise/himalaya-mcp");
+    expect(manifest.repository.url).toContain("Blackklegend/himalaya-mcp");
   });
 });
 
@@ -1837,7 +1528,7 @@ describe("Packaging: CI validates mcpb", () => {
 
 describe("Packaging: release includes mcpb", () => {
   const releaseContent = readFileSync(
-    join(PROJECT_ROOT, ".github", "workflows", "homebrew-release.yml"),
+    join(PROJECT_ROOT, ".github", "workflows", "homebrew-release.yml.disabled"),
     "utf-8"
   );
 

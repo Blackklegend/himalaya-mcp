@@ -7,13 +7,14 @@ import { registerAttachmentTools } from "../src/tools/attachments.js";
 vi.mock("node:fs/promises", () => ({
   rm: vi.fn().mockResolvedValue(undefined),
   mkdir: vi.fn().mockResolvedValue(undefined),
+    mkdtemp: vi.fn().mockResolvedValue("/tmp/himalaya-mcp-test-private"),
   readdir: vi.fn().mockResolvedValue(["report.pdf", "photo.jpg", "plain.txt", "index.html"]),
-  stat: vi.fn().mockImplementation((path: string) => {
-    if (path.includes("report.pdf")) return Promise.resolve({ isFile: () => true, size: 245760 });
-    if (path.includes("photo.jpg")) return Promise.resolve({ isFile: () => true, size: 1048576 });
-    if (path.includes("plain.txt")) return Promise.resolve({ isFile: () => true, size: 150 });
-    if (path.includes("index.html")) return Promise.resolve({ isFile: () => true, size: 300 });
-    return Promise.resolve({ isFile: () => false, size: 0 });
+  lstat: vi.fn().mockImplementation((path: string) => {
+    if (path.includes("report.pdf")) return Promise.resolve({ isFile: () => true, isSymbolicLink: () => false, nlink: 1, size: 245760 });
+    if (path.includes("photo.jpg")) return Promise.resolve({ isFile: () => true, isSymbolicLink: () => false, nlink: 1, size: 1048576 });
+    if (path.includes("plain.txt")) return Promise.resolve({ isFile: () => true, isSymbolicLink: () => false, nlink: 1, size: 150 });
+    if (path.includes("index.html")) return Promise.resolve({ isFile: () => true, isSymbolicLink: () => false, nlink: 1, size: 300 });
+    return Promise.resolve({ isFile: () => false, isSymbolicLink: () => false, nlink: 1, size: 0 });
   }),
 }));
 
@@ -104,7 +105,7 @@ describe("Attachment tools", () => {
       const text = result.content[0].text;
       expect(text).toContain("Downloaded");
       expect(text).toContain("report.pdf");
-      expect(text).toContain("/tmp/himalaya-mcp-test-uuid-1234");
+      expect(text).toContain("/tmp/himalaya-mcp-test-private");
     });
 
     it("calls client.downloadAttachments with correct params", async () => {
@@ -114,7 +115,7 @@ describe("Attachment tools", () => {
       }, {} as any);
 
       expect(client.downloadAttachments).toHaveBeenCalledWith(
-        "42", "/tmp/himalaya-mcp-test-uuid-1234", undefined, undefined
+        "42", "/tmp/himalaya-mcp-test-private", undefined, undefined
       );
     });
 
@@ -132,8 +133,8 @@ describe("Attachment tools", () => {
     it("returns error when filename not found", async () => {
       const { readdir } = await import("node:fs/promises");
       vi.mocked(readdir).mockResolvedValueOnce(["other.doc"] as any);
-      const { stat } = await import("node:fs/promises");
-      vi.mocked(stat).mockResolvedValueOnce({ isFile: () => true, size: 5000 } as any);
+      const { lstat } = await import("node:fs/promises");
+      vi.mocked(lstat).mockResolvedValueOnce({ isFile: () => true, isSymbolicLink: () => false, nlink: 1, size: 5000 } as any);
 
       const tool = getToolHandler(server, "download_attachment");
       const result = await tool.handler({

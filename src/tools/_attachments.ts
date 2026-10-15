@@ -3,7 +3,7 @@
  * Used by compose_email and send_email tools.
  */
 
-import { existsSync } from "node:fs";
+import { checkedAttachment } from "../safe-files.js";
 import { basename, extname } from "node:path";
 
 const MIME_TYPES: Record<string, string> = {
@@ -40,15 +40,13 @@ export function mimeTypeForPath(filePath: string): string {
 }
 
 /**
- * Validate that all attachment paths exist on disk.
+ * Validate canonical attachment containment, file type, size, and MML-safe paths.
  * Returns an error message string if any path is missing, null if all are OK.
  */
 export function validateAttachmentPaths(paths: string[]): string | null {
-  for (const p of paths) {
-    if (!existsSync(p)) {
-      return `Attachment not found: "${p}"`;
-    }
-  }
+  if (paths.length > 10) return "At most 10 attachments are allowed";
+  try { for (const path of paths) checkedAttachment(path); }
+  catch (error) { return error instanceof Error ? error.message : String(error); }
   return null;
 }
 
@@ -60,6 +58,7 @@ export function validateAttachmentPaths(paths: string[]): string | null {
 export function buildAttachmentMml(paths: string[]): string {
   return paths
     .map((p) => {
+      p = checkedAttachment(p);
       const name = basename(p);
       const type = mimeTypeForPath(p);
       return `<#part type=${type} name="${name}" filename="${p}" disposition=attachment>\n<#/part>`;

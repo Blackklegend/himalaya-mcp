@@ -10,10 +10,9 @@ import { z } from "zod/v4";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { HimalayaClient } from "../himalaya/client.js";
 import { envelopeError } from "./_envelope.js";
-import { mkdir, readdir, rm, stat } from "node:fs/promises";
+import { mkdtemp, readdir, rm, lstat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, extname, basename } from "node:path";
-import { randomUUID } from "node:crypto";
 
 /** Body parts himalaya dumps alongside real attachments. */
 const BODY_PART_NAMES = new Set(["plain.txt", "index.html"]);
@@ -55,32 +54,39 @@ export async function downloadAndList(
   folder?: string,
   account?: string,
 ): Promise<{ destDir: string; files: Array<{ filename: string; mime: string; size: number }> }> {
-  const destDir = join(tmpdir(), `himalaya-mcp-${randomUUID()}`);
-  await mkdir(destDir, { recursive: true });
+  const destDir = await mkdtemp(join(tmpdir(), "himalaya-mcp-"));
+  try {
 
-  await client.downloadAttachments(id, destDir, folder, account);
+    await client.downloadAttachments(id, destDir, folder, account);
 
-  const entries = await readdir(destDir);
-  const files: Array<{ filename: string; mime: string; size: number }> = [];
+    const entries = await readdir(destDir);
+    if (entries.length > 50) throw new Error("Too many downloaded parts");
+    let total = 0;
+    const files: Array<{ filename: string; mime: string; size: number }> = [];
 
-  for (const entry of entries) {
-    // Filter out body parts
-    if (BODY_PART_NAMES.has(entry)) continue;
+    for (const entry of entries) {
+      const info = await lstat(join(destDir, entry));
+      if (!info.isFile() || info.isSymbolicLink() || info.nlink !== 1) throw new Error("Unsafe downloaded part");
+      total += info.size;
+      if (info.size > 10 * 1024 * 1024 || total > 25 * 1024 * 1024) throw new Error("Downloaded parts exceed size limit");
 
-    const info = await stat(join(destDir, entry));
-    if (!info.isFile()) continue;
+      if (BODY_PART_NAMES.has(entry)) continue;
 
-    // Skip tiny files with generic names (likely body part variants)
-    if (info.size < 100 && !extname(entry)) continue;
+      // Skip tiny files with generic names (likely body part variants)
+      if (info.size < 100 && !extname(entry)) continue;
 
-    files.push({
-      filename: entry,
-      mime: mimeFromExt(entry),
-      size: info.size,
-    });
+      files.push({
+        filename: entry,
+        mime: mimeFromExt(entry),
+        size: info.size,
+      });
+    }
+
+    return { destDir, files };
+  } catch (error) {
+    await rm(destDir, { recursive: true, force: true });
+    throw error;
   }
-
-  return { destDir, files };
 }
 
 export function registerAttachmentTools(server: McpServer, client: HimalayaClient) {
@@ -134,7 +140,7 @@ export function registerAttachmentTools(server: McpServer, client: HimalayaClien
     },
   }, async (args) => {
     // Guard against path traversal in user-provided filename
-    if (basename(args.filename) !== args.filename) {
+    if (!args.filename || args.filename === "." || args.filename === ".." || /[\\\x00-\x1f\x7f]/u.test(args.filename) || basename(args.filename) !== args.filename) {
       return {
         content: [{
           type: "text" as const,
@@ -145,6 +151,7 @@ export function registerAttachmentTools(server: McpServer, client: HimalayaClien
     }
 
     let destDir: string | undefined;
+    let retained = false;
     try {
       const result = await downloadAndList(client, args.id, args.folder, args.account);
       destDir = result.destDir;
@@ -163,6 +170,7 @@ export function registerAttachmentTools(server: McpServer, client: HimalayaClien
       }
 
       const filePath = join(destDir, args.filename);
+      retained = true;
       return {
         content: [{
           type: "text" as const,
@@ -172,7 +180,7 @@ export function registerAttachmentTools(server: McpServer, client: HimalayaClien
     } catch (err) {
       return envelopeError(err);
     } finally {
-      if (destDir) {
+      if (destDir && !retained) {
         await rm(destDir, { recursive: true, force: true }).catch(() => {});
       }
     }

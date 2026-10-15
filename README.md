@@ -1,3 +1,20 @@
+# himalaya-mcp — hardened preview-only fork
+
+Based on Data-Wise/himalaya-mcp 2.1.2. Maintained here by Blackklegend.
+**Delivery is disabled. Default configuration exposes only read tools.**
+This is a source hardening effort, not a complete audit or a work-mailbox certification.
+
+Start with [HARDENING.md](HARDENING.md) for capabilities, the reviewed build procedure,
+manual activation, tests, and limitations. [SECURITY-REVIEW.md](SECURITY-REVIEW.md)
+records findings and validation. Do not use the upstream Homebrew marketplace helper
+to activate this fork: it can load a different repository/version.
+
+The material below is retained upstream documentation and describes the original
+application. Claims about sending, automatic installation, tool availability, and
+`confirm=true` do **not** apply to this fork. The fork documents above take precedence.
+
+---
+
 # himalaya-mcp
 
 Privacy-first email for Claude -- MCP server and Claude Code plugin (`himalaya`) wrapping the [himalaya](https://github.com/pimalaya/himalaya) CLI.

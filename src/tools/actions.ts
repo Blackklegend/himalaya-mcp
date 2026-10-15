@@ -2,6 +2,7 @@
  * MCP tools for email actions: export to markdown, extract action items.
  */
 
+import { writeExport } from "../safe-files.js";
 import { z } from "zod/v4";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { HimalayaClient } from "../himalaya/client.js";
@@ -86,7 +87,7 @@ export function registerActionTools(server: McpServer, client: HimalayaClient) {
       id: z.string().describe("Email message ID"),
       folder: z.string().optional().describe("Folder name (default: INBOX)"),
       account: z.string().optional().describe("Account name (uses default if omitted)"),
-      destination: z.string().optional().describe("File path to save action items (optional). Writes a markdown file with extracted action items."),
+      destination: z.string().optional().describe("Optional plain filename in HIMALAYA_EXPORT_ROOT; requires export capability and never overwrites."),
     },
   }, async (args) => {
     try {
@@ -138,17 +139,7 @@ export function registerActionTools(server: McpServer, client: HimalayaClient) {
         "- [ ] Meetings or events mentioned",
       ].join("\n");
 
-      // Save to file if destination is specified
-      if (args.destination) {
-        try {
-          const { writeFileSync, mkdirSync } = await import("node:fs");
-          const { dirname } = await import("node:path");
-          mkdirSync(dirname(args.destination), { recursive: true });
-          writeFileSync(args.destination, actionItemsText, "utf-8");
-        } catch {
-          // File write failure is non-fatal — return the content anyway
-        }
-      }
+      if (args.destination) writeExport(args.destination, actionItemsText);
 
       return {
         content: [{ type: "text" as const, text: actionItemsText }],

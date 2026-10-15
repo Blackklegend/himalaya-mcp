@@ -28,7 +28,7 @@ cp "$PROJECT_ROOT/dist/index.js" "$MCPB_DIR/dist/index.js"
 
 # Step 3: Validate manifest
 echo "  [3/4] Validating manifest..."
-npx --yes @anthropic-ai/mcpb validate "$MCPB_DIR/"
+npx --no-install @anthropic-ai/mcpb validate "$MCPB_DIR/"
 
 # Step 4: Pack .mcpb
 echo "  [4/4] Packing .mcpb..."
@@ -43,7 +43,7 @@ MCPB_FILE="$PROJECT_ROOT/$OUTPUT_NAME"
 # raced: it won on the v2.1.0 release and lost on v2.1.1, failing the build and
 # skipping the entire Homebrew formula update. There is nothing to wait for once
 # pack has exited — only a name to fix. See issue #121.
-npx @anthropic-ai/mcpb pack "$MCPB_DIR/" "$MCPB_FILE"
+npx --no-install @anthropic-ai/mcpb pack "$MCPB_DIR/" "$MCPB_FILE"
 
 if [ ! -f "$MCPB_FILE" ]; then
   shopt -s nullglob

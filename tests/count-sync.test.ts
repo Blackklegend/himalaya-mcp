@@ -19,6 +19,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { TOOL_CAPABILITY } from "../src/security";
 import { TOOL_COUNT } from "../src/index";
 
 const REPO_ROOT = join(__dirname, "..");
@@ -72,8 +73,8 @@ describe("tool count sync", () => {
     //   - docs/reference/commands.md
     //   - docs/reference/cheat-sheet.md
     //   - docs/index.md grid cards
-    expect(TOOL_COUNT).toBe(29);
-    expect(CANONICAL_TOOLS.length).toBe(TOOL_COUNT);
+    expect(TOOL_COUNT).toBe(12);
+    expect(CANONICAL_TOOLS.sort()).toEqual(Object.keys(TOOL_CAPABILITY).sort());
   });
 
   it("docs/reference/cheat-sheet.md's tool list matches the canonical set", () => {
@@ -96,7 +97,7 @@ describe("tool count sync", () => {
       .filter(Boolean)
       .sort();
 
-    expect(headingCount, "heading count must match TOOL_COUNT").toBe(TOOL_COUNT);
+    expect(headingCount, "heading count describes the upstream catalog").toBe(CANONICAL_TOOLS.length);
     expect(listedTools, "listed tools must match the canonical set exactly").toEqual(CANONICAL_TOOLS);
   });
 

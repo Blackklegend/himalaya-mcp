@@ -163,6 +163,7 @@ describe("E2E: MCP Server Headless", () => {
         PATH: `${fakeBinDir}:${process.env.PATH}`,
         HIMALAYA_BINARY: join(fakeBinDir, "himalaya"),
         HIMALAYA_FROM: "e2e@example.com",
+        HIMALAYA_CAPABILITIES: "drafts,mailbox-write,attachments,calendar,reminders,clipboard",
       },
       stdio: ["pipe", "pipe", "pipe"],
     });
@@ -196,7 +197,7 @@ describe("E2E: MCP Server Headless", () => {
 
     expect(initResult.result).toBeDefined();
     expect(initResult.result.serverInfo.name).toBe("himalaya-mcp");
-    expect(initResult.result.serverInfo.version).toBe("2.1.2");
+    expect(initResult.result.serverInfo.version).toBe("2.1.2-hardened.1");
 
     // Send initialized notification
     sendNotification("notifications/initialized");
@@ -213,7 +214,7 @@ describe("E2E: MCP Server Headless", () => {
 
   // --- Tool listing ---
 
-  it("lists all 29 registered tools", async () => {
+  it("lists the 27 enabled tools (snooze disabled)", async () => {
     const result = await sendRequest("tools/list");
     const tools = result.result.tools;
     const toolNames = tools.map((t: any) => t.name).sort();
@@ -236,7 +237,6 @@ describe("E2E: MCP Server Headless", () => {
       "list_attachments",
       "list_emails",
       "list_folders",
-      "list_snoozed_emails",
       "list_starred",
       "list_threads",
       "move_email",
@@ -247,7 +247,6 @@ describe("E2E: MCP Server Headless", () => {
       "render_email",
       "search_emails",
       "send_email",
-      "snooze_email",
     ]);
   });
 
@@ -357,7 +356,7 @@ describe("E2E: MCP Server Headless", () => {
   it("send_email without confirm returns preview", async () => {
     const result = await sendRequest("tools/call", {
       name: "send_email",
-      arguments: { template: "From: me@test.com\nSubject: Test\n\nHello" },
+      arguments: { template: "From: me@test.com\nTo: you@test.com\nSubject: Test\n\nHello" },
     });
 
     const text = result.result.content[0].text;
@@ -365,7 +364,7 @@ describe("E2E: MCP Server Headless", () => {
     expect(text).toContain("NOT been sent");
   });
 
-  it("send_email with confirm=true sends", async () => {
+  it("send_email with confirm=true is blocked", async () => {
     const result = await sendRequest("tools/call", {
       name: "send_email",
       arguments: {
@@ -375,7 +374,8 @@ describe("E2E: MCP Server Headless", () => {
     });
 
     const text = result.result.content[0].text;
-    expect(text).toContain("sent successfully");
+    expect(result.result.isError).toBe(true);
+    expect(text).toContain("Delivery disabled");
   });
 
   it("export_to_markdown returns formatted markdown", async () => {
@@ -523,11 +523,10 @@ describe("E2E: MCP Server Headless", () => {
     const text = result.result.content[0].text;
     expect(text).toContain("PREVIEW");
     expect(text).toContain("NOT been sent");
-    expect(text).toContain("bob@example.com");
     expect(text).toContain("Hello from E2E");
   });
 
-  it("compose_email with confirm=true sends", async () => {
+  it("compose_email with confirm=true is blocked", async () => {
     const result = await sendRequest("tools/call", {
       name: "compose_email",
       arguments: {
@@ -539,8 +538,8 @@ describe("E2E: MCP Server Headless", () => {
     });
 
     const text = result.result.content[0].text;
-    expect(text).toContain("sent successfully");
-    expect(text).toContain("bob@example.com");
+    expect(result.result.isError).toBe(true);
+    expect(text).toContain("Delivery disabled");
   });
 
   // --- Attachment tools ---
@@ -961,7 +960,7 @@ async function spawnHarnessWithFakeHimalaya(
 
   const proc = spawn("node", ["dist/index.js"], {
     cwd: PROJECT_ROOT,
-    env: { ...process.env, HIMALAYA_BINARY: binPath },
+    env: { ...process.env, HIMALAYA_BINARY: binPath, HIMALAYA_CAPABILITIES: "mailbox-write" },
     stdio: ["pipe", "pipe", "pipe"],
   });
 

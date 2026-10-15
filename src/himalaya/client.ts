@@ -3,8 +3,9 @@
  * Uses execFile (not exec) to prevent shell injection.
  */
 
-import { execFile, spawn } from "node:child_process";
-import { readFileSync, rmSync, mkdtempSync } from "node:fs";
+import { DELIVERY_DISABLED, requireCapability, assertPlainBody } from "../security.js";
+import { execFile } from "node:child_process";
+import { rmSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -20,6 +21,8 @@ const execFileAsync = promisify(execFile);
 // Reject those for user-provided values to prevent flag smuggling
 // (e.g. query="--config /tmp/evil.toml" or target_folder="--help").
 function assertSafeArg(value: string, field: string): void {
+  const controls = field === "body" ? /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/u : /[\x00-\x1f\x7f]/u;
+  if (controls.test(value) || (field === "id" && /[/\\]/u.test(value))) throw new Error(`Unsafe ${field}`);
   if (value.startsWith("-")) {
     throw new Error(
       `${field} value "${value}" looks like a flag (starts with "-"). ` +
@@ -87,6 +90,7 @@ export class HimalayaClient {
 
   /** Resolve the sender for an optional per-call account override. */
   fromForAccount(account?: string): string {
+    if (this.opts.account && account && account !== this.opts.account) throw new Error("Account override is disabled when HIMALAYA_ACCOUNT is configured");
     if (!account || account === this.opts.account) return this.opts.from;
     return resolveFromAddress(account) ?? "";
   }
@@ -126,9 +130,11 @@ export class HimalayaClient {
     account?: string;
     timeout?: number;
     cwd?: string;
+    rawOutput?: boolean;
     /** Positional args appended after all flags (e.g. reply body) */
     trailingArgs?: string[];
   }): Promise<string> {
+    this.assertOperationAllowed(subcommand, options?.account);
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
       try {
         return await this.execOnce(subcommand, options);
@@ -148,14 +154,29 @@ export class HimalayaClient {
     throw new Error("HimalayaClient.exec: retry loop exited without resolution");
   }
 
+  private assertOperationAllowed(subcommand: string[], account?: string): void {
+    const operation = subcommand.slice(0, 2).join(" ");
+    const readOperations = ["envelope list", "envelope search", "message read", "folder list", "mailbox list", "account list"];
+    const writes = ["flag add", "flag remove", "message move", "folder create", "folder delete", "imap create", "imap delete"];
+    if (operation === "template send" || operation === "message send" || operation === "message add") throw new Error(DELIVERY_DISABLED);
+    if (writes.includes(operation)) requireCapability("mailbox-write");
+    else if (operation === "template reply") requireCapability("drafts");
+    else if (operation === "message export" || operation === "attachment download") requireCapability("attachments");
+    else if (!readOperations.includes(operation)) throw new Error(`Unsupported command: ${operation}`);
+    const requestedAccount = account;
+    if (this.opts.account && requestedAccount && requestedAccount !== this.opts.account) throw new Error("Account override is disabled when HIMALAYA_ACCOUNT is configured");
+  }
+
   /** Single-attempt subprocess invocation. */
   private async execOnce(subcommand: string[], options?: {
     folder?: string;
     account?: string;
     timeout?: number;
     cwd?: string;
+    rawOutput?: boolean;
     trailingArgs?: string[];
   }): Promise<string> {
+    this.assertOperationAllowed(subcommand, options?.account);
     // Version detection failures throw here as a HimalayaError with code
     // "himalaya_version_undetected" (not "transient"), so exec()'s retry
     // loop lets them through on the first attempt instead of burning the
@@ -166,6 +187,12 @@ export class HimalayaClient {
 
     // Subcommand first (himalaya v1.1.0 expects flags after subcommand)
     args.push(...subcommand);
+    if (version.major > 2) throw new Error("Unsupported Himalaya major version");
+    if (version.major < 2 && subcommand[0] === "message" && subcommand[1] === "read" && !args.includes("--preview")) args.push("--preview");
+    // These v1 commands use get_messages, which sets Seen even for previews
+    // and attachment listings. Their primary capability does not grant mutation.
+    const operation = subcommand.slice(0, 2).join(" ");
+    if (version.major < 2 && ["message export", "template reply", "attachment download"].includes(operation)) requireCapability("mailbox-write");
 
     // Subcommand flags
     const account = options?.account || this.opts.account;
@@ -175,7 +202,9 @@ export class HimalayaClient {
     }
 
     // Output format — himalaya v2 dropped --output in favor of a bare --json flag.
-    if (version.major >= 2) {
+    if (options?.rawOutput) {
+      // message read --raw is incompatible with the JSON output flag.
+    } else if (version.major >= 2) {
       args.push("--json");
     } else {
       args.push("--output", "json");
@@ -264,7 +293,9 @@ export class HimalayaClient {
    * MIME parts as separate files: index.html for HTML, plain.txt for text.
    */
   async readMessageHtml(id: string, folder?: string, account?: string): Promise<string> {
+    requireCapability("attachments");
     assertSafeArg(id, "id");
+    if ((await this.resolveVersion()).major >= 2) throw new Error("HTML export is unavailable for Himalaya v2 in this fork");
     const tmpDir = mkdtempSync(join(tmpdir(), "himalaya-mcp-html-"));
     try {
       const args = ["message", "export"];
@@ -273,10 +304,30 @@ export class HimalayaClient {
       // Note: exec() already appends --account and --output json
       await this.exec(args, { folder: f, account });
       const htmlPath = join(tmpDir, "index.html");
-      return readFileSync(htmlPath, "utf-8");
+      const { readRegularFile } = await import("../safe-files.js");
+      return readRegularFile(htmlPath);
     } finally {
       try { rmSync(tmpDir, { recursive: true }); } catch { /* ignore */ }
     }
+  }
+
+  /** Fixed output filename: never derive a filesystem path from message IDs. */
+  async readMessageRaw(id: string, folder?: string, account?: string): Promise<string> {
+    requireCapability("attachments");
+    assertSafeArg(id, "id");
+    if ((await this.resolveVersion()).major >= 2) {
+      const args = ["message", "read", "--raw", id];
+      const f = await this.applyFolderArg(args, folder);
+      return this.exec(args, { folder: f, account, rawOutput: true });
+    }
+    const tmpDir = mkdtempSync(join(tmpdir(), "himalaya-mcp-raw-"));
+    try {
+      const args = ["message", "export", "--full", "--destination", join(tmpDir, "message.eml"), id];
+      const f = await this.applyFolderArg(args, folder);
+      await this.exec(args, { folder: f, account });
+      const { readRegularFile } = await import("../safe-files.js");
+      return readRegularFile(join(tmpDir, "message.eml"));
+    } finally { rmSync(tmpDir, { recursive: true, force: true }); }
   }
 
   /** Add or remove flags on a message. */
@@ -327,65 +378,16 @@ export class HimalayaClient {
     args.push(id);
     // Body must come after --output json (trailingArgs), and must not
     // start with "-" to avoid flag confusion.
-    const trailingArgs = body ? (assertSafeArg(body, "body"), [body]) : undefined;
+    const trailingArgs = body ? (assertPlainBody(body), assertSafeArg(body, "body"), [body]) : undefined;
     return this.exec(args, { folder: f, account, trailingArgs });
   }
 
-  /**
-   * Send a template (MML format) via stdin.
-   * Uses spawn() with an args array — no shell involved, safe for multiline templates.
-   * Positional-arg approach breaks for multiline MML; stdin is the correct path.
-   */
+  /** Delivery is intentionally unavailable, including direct library use. */
   async sendTemplate(
     template: string,
     account?: string,
   ): Promise<string> {
-    // Template going to stdin, not CLI args — but reject leading-dash as sanity check.
-    if (template.startsWith("-")) {
-      throw new Error(
-        `template value "${template.slice(0, 20)}" looks like a flag (starts with "-"). ` +
-        `Refusing to pass it to himalaya.`,
-      );
-    }
-
-    const version = await this.resolveVersion();
-    const args = version.major >= 2 ? ["template", "send", "--json"] : ["template", "send", "--output", "json"];
-    const acct = account || this.opts.account;
-    if (acct) {
-      assertSafeArg(acct, "account");
-      args.push("--account", acct);
-    }
-
-    return new Promise((resolve, reject) => {
-      // spawn with an args array — no shell, no injection risk
-      const child = spawn(this.opts.binary, args, {
-        stdio: ["pipe", "pipe", "pipe"],
-        env: { ...process.env },
-      });
-
-      let stdout = "";
-      let stderr = "";
-      child.stdout.on("data", (d: Buffer) => { stdout += d.toString(); });
-      child.stderr.on("data", (d: Buffer) => { stderr += d.toString(); });
-
-      child.on("close", (code: number | null) => {
-        if (code === 0) {
-          resolve(stdout);
-        } else {
-          reject(this.wrapError(new Error(`himalaya error: ${stderr || stdout}`)));
-        }
-      });
-
-      child.on("error", (err: Error) => reject(this.wrapError(err)));
-
-      child.stdin.write(template);
-      child.stdin.end();
-
-      setTimeout(() => {
-        child.kill();
-        reject(new Error("Send timed out"));
-      }, this.opts.timeout);
-    });
+    throw new Error(DELIVERY_DISABLED);
   }
 
   /** List folders. */
@@ -397,6 +399,7 @@ export class HimalayaClient {
 
   /** Create a folder. */
   async createFolder(name: string, account?: string): Promise<string> {
+    requireCapability("mailbox-write");
     assertSafeArg(name, "name");
     const version = await this.resolveVersion();
     if (version.major < 2) {
@@ -410,6 +413,7 @@ export class HimalayaClient {
 
   /** Delete a folder. */
   async deleteFolder(name: string, account?: string): Promise<string> {
+    requireCapability("mailbox-write");
     assertSafeArg(name, "name");
     const version = await this.resolveVersion();
     if (version.major < 2) {
@@ -462,6 +466,7 @@ export class HimalayaClient {
   /** Download ALL attachments for a message to a directory. */
   async downloadAttachments(id: string, destDir: string, folder?: string, account?: string): Promise<string> {
     assertSafeArg(id, "id");
+    requireCapability("attachments");
     assertSafeArg(destDir, "destDir");
     const args = ["attachment", "download", "--downloads-dir", destDir, id];
     const f = await this.applyFolderArg(args, folder);

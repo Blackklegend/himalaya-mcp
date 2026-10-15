@@ -12,7 +12,7 @@
  * Imported as a library, the main dispatcher does nothing (no side effects).
  */
 
-import { isMain, getVersion, parseAccountFlag, printHelp } from "./shared.js";
+import { SERVER_CONFIG, isMain, getVersion, parseAccountFlag, printHelp } from "./shared.js";
 import { fileURLToPath } from "node:url";
 import { setup, check as setupCheck, remove as setupRemove } from "./setup.js";
 import { doctor } from "./doctor.js";
@@ -29,7 +29,9 @@ async function runCli(): Promise<void> {
   const args = process.argv.slice(2);
   const command = args[0];
 
-  if (command === "--help" || command === "-h" || command === "help") {
+  if (command === "config") {
+    console.log(JSON.stringify({ mcpServers: { himalaya: { ...SERVER_CONFIG, command: process.execPath, env: { HIMALAYA_CAPABILITIES: "" } } } }, null, 2));
+  } else if (command === "--help" || command === "-h" || command === "help") {
     printHelp();
   } else if (command === "--version" || command === "-v" || command === "version") {
     const version = getVersion();
@@ -49,7 +51,9 @@ async function runCli(): Promise<void> {
     const postRelease = args.includes("--post-release");
     const account = parseAccountFlag(args);
     await doctor({ fix, json, account, preRelease, postRelease });
-  } else if (!command || command === "setup") {
+  } else if (!command) {
+    printHelp();
+  } else if (command === "setup") {
     if (args.includes("--check")) {
       setupCheck();
     } else if (args.includes("--remove")) {

@@ -41,38 +41,11 @@ export function stableBrewEntry(path: string): string | null {
   return match ? join(match[1], "opt", "himalaya-mcp", "libexec", "dist", "index.js") : null;
 }
 
-/**
- * Find dist/index.js — the MCP server entry point.
- *
- * Resolution order:
- *   1. Relative to this script (works for Homebrew, source, and symlinked installs)
- *   2. Claude Code plugin path (~/.claude/plugins/himalaya-mcp/dist/index.js)
- */
+/** Resolve only this build; never substitute an installed plugin or moving opt path. */
 export function findServerEntry(): string {
   const thisFile = fileURLToPath(import.meta.url);
-  const invokedEntry = stableBrewEntry(process.argv[1] || thisFile);
-  if (invokedEntry && existsSync(invokedEntry)) {
-    return invokedEntry;
-  }
-
   const resolvedFile = realpathSync(thisFile);
-  const resolvedEntry = stableBrewEntry(resolvedFile);
-  if (resolvedEntry && existsSync(resolvedEntry)) {
-    return resolvedEntry;
-  }
-
-  const distDir = dirname(dirname(resolvedFile));
-  const relativeEntry = join(distDir, "index.js");
-  if (existsSync(relativeEntry)) {
-    return relativeEntry;
-  }
-
-  const pluginEntry = join(homedir(), ".claude", "plugins", "himalaya-mcp", "dist", "index.js");
-  if (existsSync(pluginEntry)) {
-    return pluginEntry;
-  }
-
-  return relativeEntry;
+  return join(dirname(dirname(resolvedFile)), "index.js");
 }
 
 export const SERVER_KEY = "himalaya";
@@ -156,8 +129,10 @@ export function printHelp(): void {
   console.log("");
   console.log("Usage: himalaya-mcp <command> [flags]");
   console.log("");
+  console.log("  config                    Print read-only config for this exact build; does not activate it");
+  console.log("");
   console.log("Setup (Claude Desktop):");
-  console.log("  setup                     Add MCP server to Claude Desktop config (default)");
+  console.log("  setup                     Explicitly add this build to Claude Desktop config");
   console.log("  setup --check, check      Verify configuration");
   console.log("  setup --remove, remove    Remove MCP server entry");
   console.log("");

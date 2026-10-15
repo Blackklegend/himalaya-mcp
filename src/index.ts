@@ -5,6 +5,9 @@
  * through MCP tools, resources, and prompts.
  */
 
+import { realpathSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { restrictTools, permittedTools, loadCapabilities } from "./security.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { HimalayaClient } from "./himalaya/client.js";
@@ -36,56 +39,67 @@ import { registerReplyPrompt } from "./prompts/reply.js";
 import { registerMorningPrompt } from "./prompts/morning.js";
 import { registerInboxCheckPrompt } from "./prompts/inbox-check.js";
 
-export const VERSION = "2.1.2";
+export const VERSION = "2.1.2-hardened.1";
 export const NAME = "himalaya-mcp";
-export const TOOL_COUNT = 29;
+export const TOOL_COUNT = permittedTools(new Set()).length;
 
-const server = new McpServer({
-  name: NAME,
-  version: VERSION,
-});
+export function createServer() {
+  const capabilities = loadCapabilities();
+  const actualServer = new McpServer({
+    name: NAME,
+    version: VERSION,
+  });
 
-const client = new HimalayaClient(loadConfig());
+  const server = restrictTools(actualServer, capabilities);
+  const client = new HimalayaClient(loadConfig());
 
-// Register tools
-registerInboxTools(server, client);
-registerReadTools(server, client);
-registerManageTools(server, client);
-registerActionTools(server, client);
-registerComposeTools(server, client);
-registerComposeNewTools(server, client);
-registerFolderTools(server, client);
-registerAttachmentTools(server, client);
-registerCalendarTools(server, client);
-registerThreadTools(server, client);
-registerHealthTools(server, client);
-registerClipboardTools(server);
-registerUnreadTools(server, client);
-registerReadRawTools(server, client);
-registerRenderTools(server, client);
-registerStarredTools(server, client);
-registerReminderTools(server);
-registerSnoozeTools(server);
+  // Register tools
+  registerInboxTools(server, client);
+  registerReadTools(server, client);
+  registerManageTools(server, client);
+  registerActionTools(server, client);
+  registerComposeTools(server, client);
+  registerComposeNewTools(server, client);
+  registerFolderTools(server, client);
+  registerAttachmentTools(server, client);
+  registerCalendarTools(server, client);
+  registerThreadTools(server, client);
+  registerHealthTools(server, client);
+  registerClipboardTools(server);
+  registerUnreadTools(server, client);
+  registerReadRawTools(server, client);
+  registerRenderTools(server, client);
+  registerStarredTools(server, client);
+  registerReminderTools(server);
+  registerSnoozeTools(server);
 
-// Register resources
-registerResources(server, client);
+  // Register resources
+  registerResources(server, client);
 
-// Register prompts
-registerTriagePrompt(server);
-registerSummarizePrompt(server);
-registerDigestPrompt(server);
-registerReplyPrompt(server);
-registerMorningPrompt(server);
-registerInboxCheckPrompt(server);
-registerWeeklyDigestPrompt(server);
+  // Register prompts
+  registerTriagePrompt(server);
+  registerSummarizePrompt(server);
+  registerDigestPrompt(server);
+  registerReplyPrompt(server);
+  registerMorningPrompt(server);
+  registerInboxCheckPrompt(server);
+  registerWeeklyDigestPrompt(server);
 
-// Start server
-async function main() {
-  const transport = new StdioServerTransport();
-  await server.connect(transport);
+  return actualServer;
 }
 
-main().catch((err) => {
-  console.error("Fatal:", err);
-  process.exit(1);
-});
+async function main() {
+  await createServer().connect(new StdioServerTransport());
+}
+
+function isMainModule(): boolean {
+  try {
+    return !!process.argv[1] && realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
+}
+
+if (isMainModule()) {
+  main().catch((err) => { console.error("Fatal:", err); process.exitCode = 1; });
+}

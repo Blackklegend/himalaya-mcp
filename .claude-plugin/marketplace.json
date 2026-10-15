@@ -1,17 +1,17 @@
 {
   "name": "himalaya-mcp",
   "owner": {
-    "name": "Data-Wise"
+    "name": "Blackklegend"
   },
   "metadata": {
-    "description": "Privacy-first email MCP server and Claude Code plugin wrapping himalaya CLI",
-    "version": "2.1.2"
+    "description": "Preview-only hardened fork of Data-Wise/himalaya-mcp; read-only defaults",
+    "version": "2.1.2-hardened.1"
   },
   "plugins": [
     {
       "name": "himalaya",
       "source": "./himalaya-mcp-plugin",
-      "description": "Privacy-first email MCP server wrapping himalaya CLI",
+      "description": "Preview-only hardened fork of Data-Wise/himalaya-mcp; read-only defaults",
       "category": "productivity",
       "tags": [
         "email",
@@ -21,5 +21,5 @@
       ]
     }
   ],
-  "version": "2.1.2"
+  "version": "2.1.2-hardened.1"
 }
