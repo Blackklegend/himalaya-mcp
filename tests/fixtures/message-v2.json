@@ -1,0 +1,11 @@
+{
+  "text_body": [1],
+  "html_body": [2],
+  "attachments": [3],
+  "parts": [
+    { "body": { "Multipart": [1, 2, 3] } },
+    { "body": { "Text": "Hello from the plain text part.\n\nSecond paragraph." } },
+    { "body": { "Html": "<p>Hello from the <strong>HTML</strong> part.</p>" } },
+    { "body": { "Text": "Attachment contents must not become the message body." } }
+  ]
+}

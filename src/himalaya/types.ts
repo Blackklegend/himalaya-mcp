@@ -41,7 +41,7 @@ export interface Account {
 }
 
 // --- Message body (from `himalaya message read`) ---
-// himalaya returns the body as a plain JSON string
+// Canonical string, normalized from a v1 JSON string or v2 MIME message.
 
 export type MessageBody = string;
 

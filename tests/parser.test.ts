@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import messageV2 from "./fixtures/message-v2.json";
 import {
   parse,
   parseEnvelopes,
@@ -268,6 +269,72 @@ describe("parseAccounts", () => {
 });
 
 describe("parseMessageBody", () => {
+  // Synthetic content using the MIME structure observed in himalaya v2.2.1.
+  it("extracts the indexed v2 text body without HTML or attachments", () => {
+    expect(parseMessageBody(JSON.stringify(messageV2))).toEqual({
+      ok: true,
+      data: "Hello from the plain text part.\n\nSecond paragraph.",
+    });
+  });
+
+  it("falls back to the indexed HTML body for an HTML-only message", () => {
+    expect(parseMessageBody(JSON.stringify({ ...messageV2, text_body: [] }))).toEqual({
+      ok: true,
+      data: "<p>Hello from the <strong>HTML</strong> part.</p>",
+    });
+  });
+
+  it("joins multiple body parts in the order declared by the body indexes", () => {
+    expect(parseMessageBody(JSON.stringify({
+      text_body: [2, 0],
+      html_body: [],
+      parts: [
+        { body: { Text: "Second" } },
+        { body: { Text: "Not a body part" } },
+        { body: { Text: "First" } },
+      ],
+    }))).toEqual({ ok: true, data: "First\n\nSecond" });
+  });
+
+  it("accepts an empty MIME body", () => {
+    expect(parseMessageBody(JSON.stringify({
+      text_body: [], html_body: [], parts: [],
+    }))).toEqual({ ok: true, data: "" });
+  });
+
+  it("preserves an empty text part instead of substituting HTML", () => {
+    expect(parseMessageBody(JSON.stringify({
+      ...messageV2,
+      parts: [{}, { body: { Text: "" } }, { body: { Html: "<p>Alternative</p>" } }],
+    }))).toEqual({ ok: true, data: "" });
+  });
+
+  it.each([
+    null, true, 42, [], {}, { body: { unexpected: "wrapper" } },
+    { text_body: "1", html_body: [], parts: [] },
+    { text_body: [], html_body: null, parts: [] },
+    { text_body: [], html_body: [], parts: {} },
+    { ...messageV2, text_body: [-1] },
+    { ...messageV2, text_body: [1.5] },
+    { ...messageV2, text_body: ["1"] },
+    { ...messageV2, text_body: [99] },
+    { ...messageV2, text_body: [0] },
+    { ...messageV2, parts: [null, { body: { Text: {} } }] },
+    { ...messageV2, parts: [null, null] },
+  ].map((body) => [body]))("rejects unsupported JSON or malformed MIME bodies: %j", (body) => {
+    const result = parseMessageBody(JSON.stringify(body));
+    expect(result).toEqual({
+      ok: false,
+      error: expect.stringContaining("message body response"),
+      code: "PARSE_ERROR",
+    });
+  });
+
+  it.each(["body", "text"])("preserves the supported %s string wrapper", (key) => {
+    expect(parseMessageBody(JSON.stringify({ [key]: "Wrapped body" })))
+      .toEqual({ ok: true, data: "Wrapped body" });
+  });
+
   it("parses JSON-quoted string body", () => {
     const result = parseMessageBody('"Hello world\\n\\nThis is the body"');
     expect(result.ok).toBe(true);
