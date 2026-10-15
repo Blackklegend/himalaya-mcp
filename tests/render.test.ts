@@ -1,9 +1,11 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { registerRenderTools } from "../src/tools/render";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { HimalayaClient } from "../src/himalaya/client.js";
 
 describe("render_email", () => {
+  beforeEach(() => vi.stubEnv("HIMALAYA_CAPABILITIES", "attachments"));
+  afterEach(() => vi.unstubAllEnvs());
   it("registers the tool", () => {
     const server = { registerTool: vi.fn() };
     const client = new HimalayaClient({ from: "test@example.com" });
@@ -60,6 +62,7 @@ describe("render_email", () => {
     const server = { registerTool: vi.fn() };
     const client = new HimalayaClient({ from: "test@example.com" });
     vi.spyOn(client, "readMessageHtml").mockRejectedValue(new Error("Failed"));
+    vi.spyOn(client, "readMessage").mockRejectedValue(new Error("Failed"));
     registerRenderTools(server as unknown as McpServer, client);
 
     const handler = (server.registerTool as ReturnType<typeof vi.fn>).mock.calls[0][2];

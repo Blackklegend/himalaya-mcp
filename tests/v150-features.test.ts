@@ -123,15 +123,13 @@ describe("v1.5.0: plugin.json hook structure", () => {
     expect(pluginJson.hooks.PreToolUse.length).toBeGreaterThan(0);
   });
 
-  it("description reflects updated counts", () => {
-    expect(pluginJson.description).toContain("29 tools");
-    expect(pluginJson.description).toContain("7 prompts");
-    expect(pluginJson.description).toContain("16 skills");
-    expect(pluginJson.description).toContain("2 hooks");
+  it("description advertises the hardened security profile", () => {
+    expect(pluginJson.description).toContain("read-only defaults");
+    expect(pluginJson.description).toContain("delivery disabled");
   });
 
   it("version is 2.1.2", () => {
-    expect(pluginJson.version).toBe("2.1.2");
+    expect(pluginJson.version).toBe("2.1.2-hardened.1");
   });
 });
 

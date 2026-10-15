@@ -1,3 +1,6 @@
+import { beforeEach as capabilityBeforeEach, afterEach as capabilityAfterEach, vi as capabilityVi } from "vitest";
+capabilityBeforeEach(() => capabilityVi.stubEnv("HIMALAYA_CAPABILITIES", "mailbox-write,attachments,drafts"));
+capabilityAfterEach(() => capabilityVi.unstubAllEnvs());
 /**
  * Dogfood tests for v1.6.0 reliability surface.
  *

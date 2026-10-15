@@ -70,9 +70,9 @@ export async function handleHealthCheck(
     };
   }
 
-  if (args.account) {
-    accounts = accounts.filter((a) => a.name === args.account);
-  }
+  const selectedAccount = client.account || args.account;
+  if (client.account && args.account && client.account !== args.account) throw new Error("Account override is disabled when HIMALAYA_ACCOUNT is configured");
+  if (selectedAccount) accounts = accounts.filter((a) => a.name === selectedAccount);
 
   if (accounts.length === 0) {
     return {

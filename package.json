@@ -1,7 +1,7 @@
 {
   "name": "himalaya-mcp",
-  "version": "2.1.2",
-  "description": "MCP server wrapping himalaya CLI for privacy-first email access in Claude",
+  "version": "2.1.2-hardened.1",
+  "description": "Hardened read-only-default email MCP fork; preview-only drafts, delivery disabled",
   "type": "module",
   "main": "dist/index.js",
   "bin": {
@@ -12,9 +12,9 @@
     "build:bundle": "esbuild src/index.ts --bundle --platform=node --target=node22 --outfile=dist/index.js --format=esm --minify && mkdir -p himalaya-mcp-plugin/dist && cp dist/index.js himalaya-mcp-plugin/dist/index.js",
     "dev": "tsc --watch",
     "start": "node dist/index.js",
-    "test": "vitest run",
+    "test": "node scripts/test-isolated.mjs",
     "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage",
+    "test:coverage": "node scripts/test-isolated.mjs --coverage",
     "test:e2e": "npm run build && node tests/e2e.mjs",
     "lint": "npm run build",
     "build:mcpb": "bash scripts/build-mcpb.sh",
@@ -33,20 +33,27 @@
     "node": ">=22"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@modelcontextprotocol/sdk": "1.32.1",
     "node-html-markdown": "^2.0.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {
     "@anthropic-ai/mcpb": "2.1.2",
     "@types/node": "^26.1.1",
-    "@vitest/coverage-v8": "^4.1.10",
+    "@vitest/coverage-v8": "4.1.11",
     "esbuild": "^0.28.1",
     "typescript": "^6.0.3",
-    "vitest": "^4.1.10"
+    "vitest": "4.1.11"
   },
   "overrides": {
     "postcss": "^8.5.18",
     "tmp": "^0.2.7"
-  }
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Blackklegend/himalaya-mcp.git"
+  },
+  "contributors": [
+    "Blackklegend (security hardening)"
+  ]
 }

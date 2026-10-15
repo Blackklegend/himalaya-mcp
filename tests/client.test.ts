@@ -1,3 +1,6 @@
+import { beforeEach as capabilityBeforeEach, afterEach as capabilityAfterEach, vi as capabilityVi } from "vitest";
+capabilityBeforeEach(() => capabilityVi.stubEnv("HIMALAYA_CAPABILITIES", "mailbox-write,attachments,drafts"));
+capabilityAfterEach(() => capabilityVi.unstubAllEnvs());
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { promisify } from "node:util";
 import { HimalayaClient } from "../src/himalaya/client.js";
@@ -18,6 +21,11 @@ vi.mock("node:fs", () => ({
   rmSync: vi.fn(),
   mkdtempSync: vi.fn(),
 }));
+
+vi.mock("../src/safe-files.js", async () => {
+  const fs = await import("node:fs");
+  return { readRegularFile: (path: string) => fs.readFileSync(path, "utf-8") };
+});
 
 vi.mock("node:os", () => ({
   tmpdir: vi.fn().mockReturnValue("/tmp"),
@@ -343,8 +351,19 @@ describe("HimalayaClient", () => {
       );
     });
 
+    it("v1 reads always use --preview and v2 reads never use --seen", async () => {
+      for (const version of [V1_VERSION_STDOUT, V2_VERSION_STDOUT]) {
+        configureMock({ version, stdout: '\"fixture\"' });
+        mockExecFileAsync.mockClear();
+        await new HimalayaClient().readMessage("123");
+        const command = mockExecFileAsync.mock.calls.find(call => call[1][0] === "message");
+        expect(command![1]).not.toContain("--seen");
+        expect(command![1].includes("--preview")).toBe(version === V1_VERSION_STDOUT);
+      }
+    });
+
     it("readMessageHtml uses message export instead of removed --html flag", async () => {
-      setupMock("");
+      configureMock({ version: V1_VERSION_STDOUT, stdout: "" });
       vi.mocked(fs.mkdtempSync).mockReturnValue("/tmp/himalaya-mcp-html-test");
       vi.mocked(fs.readFileSync).mockReturnValue("<p>Test HTML content</p>");
       vi.mocked(fs.rmSync).mockImplementation(() => {});
@@ -389,35 +408,12 @@ describe("HimalayaClient", () => {
     });
   });
 
-  describe("sendTemplate dual-syntax (spawn path, not exec())", () => {
-    it("passes --json flag on himalaya v2", async () => {
-      configureMock({ version: V2_VERSION_STDOUT });
-      mockSpawn.mockImplementation(() => fakeChildProcess(0, "ok"));
-      const client = new HimalayaClient();
-
-      await client.sendTemplate("From: a@b.com\n\nhi");
-
-      expect(mockSpawn).toHaveBeenCalledWith(
-        "himalaya",
-        expect.arrayContaining(["template", "send", "--json"]),
-        expect.any(Object),
-      );
-      const spawnArgs = mockSpawn.mock.calls[0][1] as string[];
-      expect(spawnArgs).not.toContain("--output");
-    });
-
-    it("passes --output json flag on himalaya v1.x", async () => {
-      configureMock({ version: V1_VERSION_STDOUT });
-      mockSpawn.mockImplementation(() => fakeChildProcess(0, "ok"));
-      const client = new HimalayaClient();
-
-      await client.sendTemplate("From: a@b.com\n\nhi");
-
-      expect(mockSpawn).toHaveBeenCalledWith(
-        "himalaya",
-        expect.arrayContaining(["template", "send", "--output", "json"]),
-        expect.any(Object),
-      );
+  describe("sendTemplate disabled for every CLI generation", () => {
+    it.each([V1_VERSION_STDOUT, V2_VERSION_STDOUT])("never spawns SMTP for %s", async version => {
+      configureMock({ version });
+      await expect(new HimalayaClient().sendTemplate("From: a@b.com\n\nhi")).rejects.toThrow("Delivery disabled");
+      expect(mockSpawn).not.toHaveBeenCalled();
+      expect(mockExecFileAsync).not.toHaveBeenCalled();
     });
   });
 
@@ -589,7 +585,7 @@ describe("HimalayaClient", () => {
 
     it("rejects a send template that starts with a dash", async () => {
       const client = new HimalayaClient();
-      await expect(client.sendTemplate("--help")).rejects.toThrow(/looks like a flag/);
+      await expect(client.sendTemplate("--help")).rejects.toThrow(/Delivery disabled/);
     });
 
     it("does not reach execFile when a flag is rejected", async () => {

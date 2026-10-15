@@ -194,8 +194,16 @@ export function parseMessageBody(raw: string): CommandOutput<MessageBody> {
   // himalaya message read --output json returns a JSON string (quoted)
   // e.g., "Hello world\n\nThis is the body"
   try {
-    const body = JSON.parse(trimmed) as string;
-    return { ok: true, data: body };
+    const body: unknown = JSON.parse(trimmed);
+    if (typeof body === "string") return { ok: true, data: body };
+    if (body && typeof body === "object") {
+      for (const key of ["body", "text"]) {
+        const value = (body as Record<string, unknown>)[key];
+        if (typeof value === "string") return { ok: true, data: value };
+      }
+    }
+    // Preserve unfamiliar CLI response shapes as text, never an object in MCP.
+    return { ok: true, data: JSON.stringify(body, null, 2) };
   } catch {
     // If it's not valid JSON, it might be raw text (fallback)
     return { ok: true, data: trimmed };

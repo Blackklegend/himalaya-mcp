@@ -1,3 +1,6 @@
+import { beforeEach as capabilityBeforeEach, afterEach as capabilityAfterEach, vi as capabilityVi } from "vitest";
+capabilityBeforeEach(() => capabilityVi.stubEnv("HIMALAYA_CAPABILITIES", "mailbox-write,attachments,drafts"));
+capabilityAfterEach(() => capabilityVi.unstubAllEnvs());
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { promisify } from "node:util";
 import { HimalayaClient } from "../src/himalaya/client.js";

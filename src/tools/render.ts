@@ -6,6 +6,7 @@
  * plain text emails, returns the body as-is.
  */
 
+import { loadCapabilities } from "../security.js";
 import { z } from "zod/v4";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { HimalayaClient } from "../himalaya/client.js";
@@ -23,7 +24,8 @@ export function registerRenderTools(server: McpServer, client: HimalayaClient) {
   }, async (args) => {
     try {
       // Try HTML first — parse the JSON-quoted HTML body
-      const htmlRaw = await client.readMessageHtml(args.id, args.folder, args.account);
+      const htmlRaw = loadCapabilities().has("attachments")
+        ? await client.readMessageHtml(args.id, args.folder, args.account).catch(() => "") : "";
       const htmlResult = parseMessageBody(htmlRaw);
       if (htmlResult.ok && htmlResult.data && htmlResult.data.length > 0) {
         const { NodeHtmlMarkdown } = await import("node-html-markdown");

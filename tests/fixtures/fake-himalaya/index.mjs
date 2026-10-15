@@ -72,6 +72,10 @@ function dispatch() {
   }
 
   // version === 1
+  if (startsWith("message", "read")) {
+    if (!hasFlag("--preview")) return { stdout: "", stderr: "unsafe v1 read: --preview required", code: 2 };
+    return { stdout: JSON.stringify("fixture read without Seen mutation"), stderr: "", code: 0 };
+  }
   if (argv[0] === "mailbox") {
     return { stdout: "", stderr: "error: unrecognized subcommand 'mailbox'", code: 2 };
   }
