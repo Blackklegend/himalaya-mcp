@@ -1,16 +1,13 @@
 /**
  * read_email_raw MCP tool.
  *
- * Returns the raw MIME source of an email using himalaya's
- * `message export --full` command, which exports the raw,
- * unedited message as a .eml file.
+ * Returns the raw MIME source using the client's version-aware reader.
  */
 
 import { z } from "zod/v4";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { HimalayaClient } from "../himalaya/client.js";
 import { envelopeError } from "./_envelope.js";
-
 
 export function registerReadRawTools(server: McpServer, client: HimalayaClient) {
   server.registerTool("read_email_raw", {
@@ -23,7 +20,11 @@ export function registerReadRawTools(server: McpServer, client: HimalayaClient) 
   }, async (args) => {
     try {
       const raw = await client.readMessageRaw(args.id, args.folder, args.account);
-      return { content: [{ type: "text" as const, text: raw }] };
-    } catch (err) { return envelopeError(err); }
+      return {
+        content: [{ type: "text" as const, text: raw }],
+      };
+    } catch (err) {
+      return envelopeError(err);
+    }
   });
 }

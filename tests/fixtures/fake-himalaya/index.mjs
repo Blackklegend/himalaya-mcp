@@ -62,7 +62,13 @@ function dispatch() {
     if (startsWith("envelope", "list") && hasFlag("--json")) return { stdout: CANNED_ENVELOPES, stderr: "", code: 0 };
     if (startsWith("mailbox", "list") && hasFlag("--json")) return { stdout: CANNED_MAILBOXES, stderr: "", code: 0 };
     if (startsWith("account", "list") && hasFlag("--json")) return { stdout: CANNED_ACCOUNTS, stderr: "", code: 0 };
-    if (startsWith("message", "read")) return { stdout: JSON.stringify({ body: "fixture message body" }), stderr: "", code: 0 };
+    // Captured from v2.2.1 message read --help and a live read on 2026-10-15:
+    // JSON uses html_body indexes into parts; --raw emits RFC 5322 source.
+    if (startsWith("message", "read")) {
+      if (hasFlag("--folder") || hasFlag("--html")) return { stdout: "", stderr: "error: unexpected read flag", code: 2 };
+      if (hasFlag("--raw") && !hasFlag("--json")) return { stdout: "From: fixture@example.com\r\n\r\nfixture body\r\n", stderr: "", code: 0 };
+      return { stdout: JSON.stringify({ html_body: [1], parts: [{ body: { Text: "fixture body" } }, { body: { Html: "<p>fixture body</p>" } }] }), stderr: "", code: 0 };
+    }
     // Verified live: `himalaya imap create/delete <name> --json` returns
     // {"message": "..."} JSON, not the plain text seen without --json.
     if (startsWith("imap", "create")) return { stdout: JSON.stringify({ message: "Mailbox successfully created" }), stderr: "", code: 0 };

@@ -341,6 +341,13 @@ Some emails are HTML-only with no plain text version.
 You: "Show me the HTML version of email 42"
 ```
 
+### `unrecognized subcommand 'export'` while reading email
+
+Himalaya v2 removed `message export`. Use a himalaya-mcp build that reads HTML
+from `message read --json` and raw MIME from `message read --raw`, then restart
+the MCP server to load it. The v1.x compatibility path still uses `message export`.
+Both paths honor the selected account and folder.
+
 ### Pagination not working
 
 The `page` parameter starts at 1, not 0:

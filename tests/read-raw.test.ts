@@ -17,6 +17,27 @@ describe("read_email_raw", () => {
     );
   });
 
+  it("passes the requested id, folder, and account to the client", async () => {
+    const server = { registerTool: vi.fn() };
+    const client = new HimalayaClient();
+    const read = vi.spyOn(client, "readMessageRaw").mockResolvedValue("From: test@example.com\r\n\r\n body \r\n");
+    registerReadRawTools(server as unknown as McpServer, client);
+    const handler = server.registerTool.mock.calls[0][2];
+    const result = await handler({ id: "2999", folder: "Archive", account: "work" });
+    expect(read).toHaveBeenCalledWith("2999", "Archive", "work");
+    expect(result.content[0].text).toBe("From: test@example.com\r\n\r\n body \r\n");
+  });
+
+  it("returns a structured tool error when reading fails", async () => {
+    const server = { registerTool: vi.fn() };
+    const client = new HimalayaClient();
+    vi.spyOn(client, "readMessageRaw").mockRejectedValue(new Error("read failed"));
+    registerReadRawTools(server as unknown as McpServer, client);
+    const result = await server.registerTool.mock.calls[0][2]({ id: "2999" });
+    expect(result.isError).toBe(true);
+    expect(JSON.parse(result.content[0].text)).toHaveProperty("error");
+  });
+
   it("tool description mentions .eml export format", () => {
     const server = { registerTool: vi.fn() };
     const client = new HimalayaClient({ from: "test@example.com" });
