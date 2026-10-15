@@ -84,8 +84,10 @@ directory so the returned path remains usable; remove that directory when finish
 The CLI downloads all parts. Its own filename handling and disk usage *during*
 download are not confined by these post-download checks.
 
-Himalaya v1 HTML/raw exports can set Seen and therefore additionally require
-`mailbox-write`. Raw export uses a fixed `message.eml` filename and the shared
+Himalaya v1 HTML/raw exports, reply templates, and attachment downloads can set
+Seen and therefore additionally require `mailbox-write`. This includes attachment
+listing and calendar extraction, which download parts internally. Raw export uses
+a fixed `message.eml` filename and the shared
 client, honoring folder/account validation and timeouts. V2 raw reads use stdout
 without the JSON flag. V2 HTML export is unavailable in this iteration; rendering
 falls back to text. File readers refuse symlinks/nonregular/oversized files.

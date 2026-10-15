@@ -5,7 +5,8 @@
  * through MCP tools, resources, and prompts.
  */
 
-import { pathToFileURL } from "node:url";
+import { realpathSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { restrictTools, permittedTools, loadCapabilities } from "./security.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
@@ -91,6 +92,14 @@ async function main() {
   await createServer().connect(new StdioServerTransport());
 }
 
-if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) {
+function isMainModule(): boolean {
+  try {
+    return !!process.argv[1] && realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
+}
+
+if (isMainModule()) {
   main().catch((err) => { console.error("Fatal:", err); process.exitCode = 1; });
 }

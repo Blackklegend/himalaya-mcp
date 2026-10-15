@@ -19,7 +19,7 @@ and UPSTREAM.md for source provenance.
 | All tools registered by default | Exactly 12 read tools are exposed by default. Explicit capability mapping filters registration; new unclassified tools fail closed. Real protocol tests call hidden tool names directly and verify refusal. |
 | External Homebrew helper activates potentially different marketplace content | The external tap is unchanged. This fork's documented path builds a reviewed checkout and prints canonical local configuration. No marketplace command or settings edit is involved. The server path has no installed-plugin or moving-opt fallback. |
 | Raw read puts message ID in a filesystem path, bypasses shared validation, and drops folder selection | Fixed internal filename for v1; ID/control/path validation and shared account/folder handling; v2 raw reads use stdout. Regression tests verify traversal rejection, folder/account routing and cleanup. |
-| v1 normal reads and export paths can set Seen | Normal reads use `--preview`. v1 HTML/raw exports require the explicit `mailbox-write` grant as well as `attachments`. V2.0.0 IMAP read source uses BODY.PEEK. |
+| v1 normal reads, exports, reply templates, and attachment downloads can set Seen | Normal reads use `--preview`. v1 HTML/raw exports and attachment downloads require the explicit `mailbox-write` grant as well as `attachments`; reply templates require it as well as `drafts`. V2.0.0 IMAP read source uses BODY.PEEK. |
 | Downloaded path was deleted before being returned; temporary output could leak on failure | Successful requested downloads retain their private directory; listing/extraction/failure paths clean up. Tests use actual temporary files. Inbound parts are checked with `lstat` and size/count checks after download. |
 | Legacy snooze file rewrite bypasses the constrained export scheme | Both snooze tools remain unavailable even when all supported capabilities are enabled. |
 | Known advisories in the original dependency lockfile | Compatible runtime updates and a Vitest 4 patch applied. Runtime audit reports zero known advisories. Remaining development packaging advisories are described below. |
@@ -93,6 +93,9 @@ These targeted checks establish the read-mode choices; they are not a full CLI a
   chooses `peek_messages` only with preview enabled.
 - [v1.1.0 export](https://github.com/pimalaya/himalaya/blob/v1.1.0/src/email/message/command/export.rs)
   uses `get_messages`.
+- [v1.2.0 reply templates](https://github.com/pimalaya/himalaya/blob/v1.2.0/src/email/message/template/command/reply.rs)
+  and [attachment downloads](https://github.com/pimalaya/himalaya/blob/v1.2.0/src/email/message/attachment/command/download.rs)
+  also use `get_messages`, so the same mutation grant is required.
 - [v2.0.0 IMAP backend](https://github.com/pimalaya/himalaya/blob/v2.0.0/src/imap/backend.rs)
   implements reads with BODY.PEEK.
 - [v2.0.0 read](https://github.com/pimalaya/himalaya/blob/v2.0.0/src/shared/message/read.rs)
@@ -126,7 +129,7 @@ process workplace email or certify it for a work mailbox. Deploying it should be
 a separate decision based on the client's data handling, the CLI/configuration,
 and the actual permissions granted.
 
-## Final validation record
+## Initial validation record (before review fixes)
 
 - Full suite: **767 passed, 44 test files**, Vitest 4.1.11, 14.55 seconds.
 - TypeScript lint/build and `git diff --check`: passed.
@@ -144,3 +147,18 @@ and the actual permissions granted.
 These hashes identify this local build on the recorded toolchain. The Git commit
 containing this record identifies the reviewable source; they do not attest an
 upstream release or an independently reproducible binary across all toolchains.
+
+## Review-fix validation
+
+- V1 reply templates and attachment downloads now require `mailbox-write` before
+  their subprocess runs. V2 retains its existing capability requirements.
+- Server startup resolves symlinks when identifying the main module. Reply bodies
+  preserve LF, CRLF and tabs while rejecting unsafe controls, flags and active MML.
+- Regression tests reproduced the failures before the fixes. Full suite after the
+  fixes: **781 passed, 44 test files**, Vitest 4.1.11, 16.11 seconds.
+- TypeScript lint/build, bundle build and `git diff --check`: passed.
+- Both rebuilt bundles passed real stdio smoke tests through symlinked directories
+  with default and drafts capabilities, including delivery refusal with a
+  deliberately nonexistent CLI binary.
+- The lockfile hash remains unchanged. Updated SHA-256 of each server bundle:
+  `f02b4a85af3a6015c2190006544da0520266c652efb39e346c4cc547145e26ad`.

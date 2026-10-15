@@ -408,6 +408,44 @@ describe("HimalayaClient", () => {
     });
   });
 
+  describe("reply body validation", () => {
+    it.each(["Hello\n\nThanks", "Hello\r\n\r\nThanks", "Hello\tthere"])("preserves plain-text whitespace in %j", async body => {
+      setupMock(JSON.stringify("reply preview"));
+      await new HimalayaClient().replyTemplate("123", body);
+      const command = mockExecFileAsync.mock.calls.find(call => call[1][0] === "template");
+      expect(command![1].at(-1)).toBe(body);
+    });
+
+    it.each(["--config=evil", "Hello\0there", "Hello\x07there", "<#part filename=secret>"])("rejects unsafe body %j before invoking the CLI", async body => {
+      await expect(new HimalayaClient().replyTemplate("123", body)).rejects.toThrow();
+      expect(mockExecFileAsync).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("v1 implicit Seen mutations", () => {
+    const commands = [["template", "reply", "123"], ["attachment", "download", "--downloads-dir", "/tmp/attachments", "123"]];
+
+    it.each(commands)("refuses %s %s without mailbox-write", async (...command) => {
+      vi.stubEnv("HIMALAYA_CAPABILITIES", "drafts,attachments");
+      configureMock({ version: V1_VERSION_STDOUT });
+      await expect(new HimalayaClient().exec(command)).rejects.toThrow("Capability disabled: mailbox-write");
+      expect(mockExecFileAsync.mock.calls.every(call => call[1][0] === "--version")).toBe(true);
+    });
+
+    it.each(commands)("allows %s %s with mailbox-write", async (...command) => {
+      configureMock({ version: V1_VERSION_STDOUT, stdout: "ok" });
+      await expect(new HimalayaClient().exec(command)).resolves.toBe("ok");
+      expect(mockExecFileAsync.mock.calls.at(-1)![1]).toEqual([...command, "--output", "json"]);
+    });
+
+    it.each(commands)("allows v2 %s %s without mailbox-write", async (...command) => {
+      vi.stubEnv("HIMALAYA_CAPABILITIES", "drafts,attachments");
+      configureMock({ version: V2_VERSION_STDOUT, stdout: "ok" });
+      await expect(new HimalayaClient().exec(command)).resolves.toBe("ok");
+      expect(mockExecFileAsync.mock.calls.at(-1)![1]).toEqual([...command, "--json"]);
+    });
+  });
+
   describe("sendTemplate disabled for every CLI generation", () => {
     it.each([V1_VERSION_STDOUT, V2_VERSION_STDOUT])("never spawns SMTP for %s", async version => {
       configureMock({ version });

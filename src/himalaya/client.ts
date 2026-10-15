@@ -3,7 +3,7 @@
  * Uses execFile (not exec) to prevent shell injection.
  */
 
-import { DELIVERY_DISABLED, requireCapability } from "../security.js";
+import { DELIVERY_DISABLED, requireCapability, assertPlainBody } from "../security.js";
 import { execFile } from "node:child_process";
 import { rmSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -21,7 +21,8 @@ const execFileAsync = promisify(execFile);
 // Reject those for user-provided values to prevent flag smuggling
 // (e.g. query="--config /tmp/evil.toml" or target_folder="--help").
 function assertSafeArg(value: string, field: string): void {
-  if (/[\x00-\x1f\x7f]/u.test(value) || (field === "id" && /[/\\]/u.test(value))) throw new Error(`Unsafe ${field}`);
+  const controls = field === "body" ? /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/u : /[\x00-\x1f\x7f]/u;
+  if (controls.test(value) || (field === "id" && /[/\\]/u.test(value))) throw new Error(`Unsafe ${field}`);
   if (value.startsWith("-")) {
     throw new Error(
       `${field} value "${value}" looks like a flag (starts with "-"). ` +
@@ -188,8 +189,10 @@ export class HimalayaClient {
     args.push(...subcommand);
     if (version.major > 2) throw new Error("Unsupported Himalaya major version");
     if (version.major < 2 && subcommand[0] === "message" && subcommand[1] === "read" && !args.includes("--preview")) args.push("--preview");
-    // v1 export/get_messages sets Seen. Require explicit mutation permission.
-    if (version.major < 2 && subcommand[0] === "message" && subcommand[1] === "export") requireCapability("mailbox-write");
+    // These v1 commands use get_messages, which sets Seen even for previews
+    // and attachment listings. Their primary capability does not grant mutation.
+    const operation = subcommand.slice(0, 2).join(" ");
+    if (version.major < 2 && ["message export", "template reply", "attachment download"].includes(operation)) requireCapability("mailbox-write");
 
     // Subcommand flags
     const account = options?.account || this.opts.account;
@@ -375,7 +378,7 @@ export class HimalayaClient {
     args.push(id);
     // Body must come after --output json (trailingArgs), and must not
     // start with "-" to avoid flag confusion.
-    const trailingArgs = body ? (assertSafeArg(body, "body"), [body]) : undefined;
+    const trailingArgs = body ? (assertPlainBody(body), assertSafeArg(body, "body"), [body]) : undefined;
     return this.exec(args, { folder: f, account, trailingArgs });
   }
 

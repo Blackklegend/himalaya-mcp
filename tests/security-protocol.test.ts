@@ -4,7 +4,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync, realpathSync } from "node:fs";
+import { mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync, realpathSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { CAPABILITIES, permittedTools } from "../src/security.js";
@@ -30,16 +30,25 @@ else { console.error("unexpected synthetic command"); process.exitCode = 98; }
 });
 afterAll(() => { if (directory) rmSync(directory, { recursive: true, force: true }); });
 
-async function connect(capabilities: string) {
+async function connect(capabilities: string, entry = join(root, "dist/index.js")) {
   const env = Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined));
   Object.assign(env, { HIMALAYA_BINARY: binary, HIMALAYA_FROM: "fixture@example.com", HIMALAYA_CAPABILITIES: capabilities });
-  const transport = new StdioClientTransport({ command: process.execPath, args: [join(root, "dist/index.js")], env });
+  const transport = new StdioClientTransport({ command: process.execPath, args: [entry], env });
   const client = new Client({ name: "security-test", version: "1" });
   await client.connect(transport);
   return client;
 }
 
 describe("security boundaries over stdio", () => {
+  it("starts the server through a symlinked plugin directory", async () => {
+    const linkedDist = join(directory, "linked-dist");
+    symlinkSync(join(root, "dist"), linkedDist, "junction");
+    const client = await connect("", join(linkedDist, "index.js"));
+    try {
+      expect((await client.listTools()).tools.map(tool => tool.name).sort()).toEqual(permittedTools(new Set()).sort());
+    } finally { await client.close(); }
+  });
+
   it("exposes only the default read set and refuses hidden tools by name", async () => {
     const client = await connect("");
     try {
