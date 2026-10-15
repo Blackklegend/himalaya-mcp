@@ -182,7 +182,9 @@ export function parseTemplate(raw: string): CommandOutput<string> {
 
 /**
  * Parse message body response.
- * himalaya returns the body as a JSON-quoted string.
+ * v1 returns a JSON-quoted string; v2 returns a parsed MIME message whose
+ * text_body/html_body arrays index into parts. Prefer plain text, with HTML
+ * as the fallback for HTML-only messages. Never include attachment parts.
  */
 export function parseMessageBody(raw: string): CommandOutput<MessageBody> {
   const trimmed = raw.trim();
@@ -191,21 +193,52 @@ export function parseMessageBody(raw: string): CommandOutput<MessageBody> {
     return { ok: false, error: "Empty message body", code: "EMPTY" };
   }
 
-  // himalaya message read --output json returns a JSON string (quoted)
-  // e.g., "Hello world\n\nThis is the body"
+  let parsed: unknown;
   try {
-    const body: unknown = JSON.parse(trimmed);
-    if (typeof body === "string") return { ok: true, data: body };
-    if (body && typeof body === "object") {
-      for (const key of ["body", "text"]) {
-        const value = (body as Record<string, unknown>)[key];
-        if (typeof value === "string") return { ok: true, data: value };
-      }
-    }
-    // Preserve unfamiliar CLI response shapes as text, never an object in MCP.
-    return { ok: true, data: JSON.stringify(body, null, 2) };
+    parsed = JSON.parse(trimmed);
   } catch {
-    // If it's not valid JSON, it might be raw text (fallback)
+    // Exported HTML and legacy plain-text output need no JSON decoding.
     return { ok: true, data: trimmed };
   }
+
+  if (typeof parsed === "string") return { ok: true, data: parsed };
+
+  // Retain the string wrappers supported by the hardened fork.
+  if (isRecord(parsed)) {
+    for (const key of ["body", "text"]) {
+      const value = parsed[key];
+      if (typeof value === "string") return { ok: true, data: value };
+    }
+  }
+
+  const invalidBody = (): CommandOutput<MessageBody> => ({
+    ok: false,
+    error: "Unexpected message body response (expected a string or a MIME message with valid body parts)",
+    code: "PARSE_ERROR",
+  });
+
+  if (!isRecord(parsed) || !Array.isArray(parsed.text_body) ||
+      !Array.isArray(parsed.html_body) || !Array.isArray(parsed.parts)) {
+    return invalidBody();
+  }
+
+  const indexes: unknown[] = parsed.text_body.length > 0 ? parsed.text_body : parsed.html_body;
+  const parts: unknown[] = parsed.parts;
+  const bodies: string[] = [];
+  for (const index of indexes) {
+    if (typeof index !== "number" || !Number.isInteger(index) || index < 0 || index >= parts.length) {
+      return invalidBody();
+    }
+    const part = parts[index];
+    if (!isRecord(part) || !isRecord(part.body)) return invalidBody();
+    const body = typeof part.body.Text === "string" ? part.body.Text : part.body.Html;
+    if (typeof body !== "string") return invalidBody();
+    bodies.push(body);
+  }
+
+  return { ok: true, data: bodies.join("\n\n") };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
